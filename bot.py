@@ -319,7 +319,7 @@ async def process_timesheet(message: types.Message):
                 send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
                 await message.reply(send_result)
             except Exception as error:
-                await echo_error(message, str(error) or 'Ошибка загрузки файла с табелем посещаемости')
+                await echo_error(message, f'Ошибка загрузки файла с табелем посещаемости: {error}')
         else:
             await echo_error(message, 'Файл не содержит табель посещаемости')
 
