@@ -128,11 +128,12 @@ async def cmd_start(message: types.Message, state: FSMContext):
     Авторизация и отправка табеля посещаемости
     """
     # Поиск пользователя в MongoDB
-    user = await users.find_one({'user_id': message.from_user.id})
+    user = users.find_one({'user_id': message.from_user.id})
     if user is None:
-        # Обработка ИНН, если его нет
+        # Обработка ИНН, если пользователь не найден
         await prompt_to_input_inn(message)
         await Form.inn.set()
+        return
     elif 'person_rn' not in user:
         # Обработка ФИО, если его нет
         await prompt_to_input_fio(message)
@@ -175,7 +176,7 @@ async def process_inn(message: types.Message, state: FSMContext):
     """
     inn = message.text
     # Поиск учреждения в MongoDB по ИНН
-    org = await orgs.find_one({'inn': inn})
+    org = orgs.find_one({'inn': inn})
     if org is None:
         # Информирование пользователя о длительной операции
         await message.reply('Авторизация учреждения...')
@@ -183,7 +184,7 @@ async def process_inn(message: types.Message, state: FSMContext):
         org = parus.find_org_by_inn(inn)
         if org is not None:
             # Учреждение найдено
-            await orgs.insert_one(org)
+            orgs.insert_one(org)
         else:
             # Учреждение не найдено
             await message.reply(f'Учреждение с ИНН {inn} не подключено к сервису.\n'
@@ -193,7 +194,7 @@ async def process_inn(message: types.Message, state: FSMContext):
     # Вывод информации об учреждении
     await message.reply(f'Учреждение: {org["agent_name"]}\nОрганизация: {org["company_agent_name"]}')
     # Добавление пользователя с привязкой к учреждению в MongoDB
-    await users.insert_one({
+    users.insert_one({
         'db_key': org['db_key'],
         'user_id': message.from_user.id,
         'chat_id': message.chat.id,
@@ -213,7 +214,12 @@ async def process_fio(message: types.Message, state: FSMContext):
     family, firstname, lastname = split_fio(fio)
     lastname_str = f'"{lastname}"' if lastname is not None else 'без отчества'
     # Поиск пользователя в MongoDB
-    user = await users.find_one({'user_id': message.from_user.id})
+    user = users.find_one({'user_id': message.from_user.id})
+    if user is None:
+        # Обработка ИНН, если пользователь не найден
+        await prompt_to_input_inn(message)
+        await Form.inn.set()
+        return
     # Поиск учреждения в MongoDB
     await message.reply('Авторизация пользователя...')
     # Поиск сотрудника учреждения по ФИО в Парусе
@@ -221,10 +227,8 @@ async def process_fio(message: types.Message, state: FSMContext):
         person_rn = parus.find_person_in_org(user['db_key'], user['org_rn'], family, firstname, lastname)
         # Сотрудник учреждения не найден
         if person_rn is None:
-            org = await orgs.find_one({'rn': user['org_rn']})
             # Сотрудник не найден в Парусе
-            await message.reply(f'Сотрудник (фамилия: "{family}", имя: "{firstname}", отчество: {lastname_str}) '
-                                f'в учреждении "{org["agent_name"]}" не найден.\n'
+            await message.reply(f'Сотрудник {fio} в учреждении не найден.\n'
                                 f'Обратитесь к разработчику {cfg.developer_telegram}')
             await state.finish()
             return
@@ -235,7 +239,7 @@ async def process_fio(message: types.Message, state: FSMContext):
     # Сотрудник учреждения найден
     lastname_with_space = f' {lastname}' if lastname is not None else None
     await message.reply(f'{firstname}{lastname_with_space}, добро пожаловать!')
-    await users.update_one(
+    users.update_one(
         {'user_id': message.from_user.id},
         {'$set': {'person_rn': person_rn, 'family': family, 'firstname': firstname, 'lastname': lastname}}
     )
@@ -250,10 +254,14 @@ async def process_group(message: types.Message, state: FSMContext):
     Обработка группы
     """
     group = message.text
-    user = await users.find_one({'user_id': message.from_user.id})
-    # Поиск группы учреждения в Парусе
+    user = users.find_one({'user_id': message.from_user.id})
+    if user is None:
+        # Обработка ИНН, если пользователь не найден
+        await prompt_to_input_inn(message)
+        await Form.inn.set()
+        return
     # Сохранение группы
-    await users.update_one(
+    users.update_one(
         {'user_id': message.from_user.id},
         {'$set': {'group': group}}
     )
@@ -268,7 +276,7 @@ async def cmd_group(message: types.Message, state: FSMContext):
     Выбор другой группы
     """
     # Удаление группы
-    await users.update_one(
+    users.update_one(
         {'user_id': message.from_user.id},
         {'$unset': {'group': 1}}
     )
@@ -282,7 +290,7 @@ async def cmd_org(message: types.Message, state: FSMContext):
     Авторизация другого учреждения
     """
     # Удаление учреждения и группы
-    await users.delete_one({'user_id': message.from_user.id})
+    users.delete_one({'user_id': message.from_user.id})
     # Обработка другого ИНН
     await cmd_start(message, state)
 
@@ -292,7 +300,7 @@ async def cmd_reset(message: types.Message):
     """
     Удаление авторизации
     """
-    await users.delete_one({'user_id': message.from_user.id})
+    users.delete_one({'user_id': message.from_user.id})
     await message.reply('Авторизация удалена', reply_markup=types.ReplyKeyboardRemove())
 
 
@@ -311,9 +319,14 @@ async def process_timesheet(message: types.Message):
                 # Загрузка файла во временную директорию
                 await message.document.download(destination_file=file_path)
                 # Поиск пользователя в MongoDB
-                user = await users.find_one({'user_id': message.from_user.id})
+                user = users.find_one({'user_id': message.from_user.id})
                 # Поиск учреждения в MongoDB
-                org = await orgs.find_one({'rn': user['org_rn']})
+                org = orgs.find_one({'rn': user['org_rn']})
+                if user is None or org is None:
+                    # Обработка ИНН, если пользователь не найден
+                    await prompt_to_input_inn(message)
+                    await Form.inn.set()
+                    return
                 # Информирование пользователя о длительной операции
                 await message.reply('Отправка табеля посещаемости в Парус...', reply_markup=types.ReplyKeyboardRemove())
                 send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
