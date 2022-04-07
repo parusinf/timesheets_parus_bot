@@ -17,8 +17,8 @@ import os
 from cp1251 import encode_cp1251, decode_cp1251
 
 
-os.environ['LD_LIBRARY_PATH'] = cfg.ld_library_path
-os.environ['NLS_LANG'] = cfg.parus_db_encoding
+os.environ['LD_LIBRARY_PATH'] = cfg.LD_LIBRARY_PATH
+os.environ['NLS_LANG'] = cfg.PARUS_DB_ENCODING
 
 
 def find_org_by_inn(inn):

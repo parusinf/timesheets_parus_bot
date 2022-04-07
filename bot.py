@@ -22,7 +22,7 @@ from helpers import split_fio, temp_file_path, echo_error
 
 
 # MongoDB
-client = MongoClient(cfg.mongodb_host, cfg.mongodb_port)
+client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
 db = client['timesheets_parus_bot']
 orgs = db['orgs']
 users = db['users']
@@ -63,7 +63,7 @@ async def cmd_help(message: types.Message):
             md.text(md.link('/help', '/help'), ' - что может делать этот бот?'),
             md.text('\nДля отправки табеля в Парус отправьте его боту из мобильного приложения\n'),
             md.text(md.bold('\nРазработчик')),
-            md.text(f'{cfg.developer_name} {cfg.developer_telegram}'),
+            md.text(f'{cfg.DEVELOPER_NAME} {cfg.DEVELOPER_TELEGRAM}'),
             sep='\n',
         ),
         reply_markup=types.ReplyKeyboardRemove(),
@@ -188,7 +188,7 @@ async def process_inn(message: types.Message, state: FSMContext):
         else:
             # Учреждение не найдено
             await message.reply(f'Учреждение с ИНН {inn} не подключено к сервису.\n'
-                                f'Обратитесь к разработчику {cfg.developer_telegram}')
+                                f'Обратитесь к разработчику {cfg.DEVELOPER_TELEGRAM}')
             await state.finish()
             return
     # Вывод информации об учреждении
@@ -228,7 +228,7 @@ async def process_fio(message: types.Message, state: FSMContext):
         if person_rn is None:
             # Сотрудник не найден в Парусе
             await message.reply(f'Сотрудник {fio} в учреждении не найден.\n'
-                                f'Обратитесь к разработчику {cfg.developer_telegram}')
+                                f'Обратитесь к разработчику {cfg.DEVELOPER_TELEGRAM}')
             await state.finish()
             return
     except Exception as error:

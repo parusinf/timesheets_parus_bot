@@ -1,6 +1,20 @@
-mongodb_host = 'localhost'
-mongodb_port = 27017
-ld_library_path = '/opt/oracle/instantclient_19_14'
-parus_db_encoding = 'RUSSIAN_RUSSIA.CL8MSWIN1251'
-developer_name = 'Павел Никитин'
-developer_telegram = '@nikitinpa'
+# MongoDB
+MONGODB_HOST = 'localhost'
+MONGODB_PORT = 27017
+
+# Webhook
+WEBHOOK_HOST = 'https://timesheets.parusinf.ru'
+WEBHOOK_PATH = '/timesheets_parus_bot'
+WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
+
+# Web server
+WEBAPP_HOST = 'localhost'
+WEBAPP_PORT = 3001
+
+# Oracle
+LD_LIBRARY_PATH = '/opt/oracle/instantclient_19_14'
+PARUS_DB_ENCODING = 'RUSSIAN_RUSSIA.CL8MSWIN1251'
+
+# Разработчик
+DEVELOPER_NAME = 'Павел Никитин'
+DEVELOPER_TELEGRAM = '@nikitinpa'
