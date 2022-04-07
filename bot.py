@@ -212,7 +212,6 @@ async def process_fio(message: types.Message, state: FSMContext):
     """
     fio = message.text
     family, firstname, lastname = split_fio(fio)
-    lastname_str = f'"{lastname}"' if lastname is not None else 'без отчества'
     # Поиск пользователя в MongoDB
     user = users.find_one({'user_id': message.from_user.id})
     if user is None:
@@ -265,7 +264,6 @@ async def process_group(message: types.Message, state: FSMContext):
         {'user_id': message.from_user.id},
         {'$set': {'group': group}}
     )
-    user['group'] = group
     # Получение табеля посещаемости из Паруса
     await receive_timesheet(message, state, user)
 
