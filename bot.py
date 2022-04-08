@@ -160,8 +160,8 @@ async def process_inn(message: types.Message, state: FSMContext):
     """
     inn = message.text
     # Поиск учреждения в MongoDB по ИНН
-    org = orgs.find_one({'inn': inn})
-    if not keys_exists(['agent_name', 'company_agent_name'], org):
+    org = orgs.find_one({'org_inn': inn})
+    if not keys_exists(['org_name', 'company_name'], org):
         await message.reply('Авторизация учреждения...')
         # Поиск базы данных Паруса и учреждения в ней по ИНН
         org = parus.find_org_by_inn(inn)
@@ -175,7 +175,7 @@ async def process_inn(message: types.Message, state: FSMContext):
             await state.finish()
             return
     # Вывод информации об учреждении
-    await message.reply(f'Учреждение: {org["agent_name"]}\nОрганизация: {org["company_agent_name"]}')
+    await message.reply(f'Учреждение: {org["org_name"]}\nОрганизация: {org["company_name"]}')
     # Создание пользователя с привязкой к учреждению
     await create_user(state, message.from_user.id, org)
     # Следующее состояние: обработка ФИО
@@ -354,7 +354,7 @@ async def create_user(state, user_id, org):
     user = {
         'db_key': org['db_key'],
         'user_id': user_id,
-        'org_rn': org['rn'],
+        'org_rn': org['org_rn'],
     }
     await state.update_data({'user': user})
     users.insert_one(user)
@@ -383,13 +383,13 @@ async def get_org(state, user_id):
     else:
         user = await get_user(state, user_id)
         if keys_exists(['org_rn'], user):
-            return orgs.find_one({'rn': user['org_rn']})
+            return orgs.find_one({'org_rn': user['org_rn']})
         else:
             return None
 
 
 async def insert_org(state, org):
-    await state.update_data({org: org})
+    await state.update_data({'org': org})
     orgs.insert_one(org)
 
 

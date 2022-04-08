@@ -46,12 +46,12 @@ def find_org_by_inn(inn):
                     if rn is not None:
                         return {
                             'db_key': db_key,
-                            'inn': inn,
-                            'rn': rn,
-                            'code': code_var.getvalue(),
-                            'agent_name': agent_name_var.getvalue(),
+                            'org_inn': inn,
+                            'org_rn': rn,
+                            'org_code': code_var.getvalue(),
+                            'org_name': agent_name_var.getvalue(),
                             'company_rn': company_rn_var.getvalue(),
-                            'company_agent_name': company_agent_name_var.getvalue(),
+                            'company_name': company_agent_name_var.getvalue(),
                         }
         except cx_Oracle.Error as error:
             logging.error(error)
