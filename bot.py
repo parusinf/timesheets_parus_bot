@@ -75,7 +75,6 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
     """
     Получение табеля посещаемости из Паруса
     """
-    await message.reply('Получение табеля посещаемости из Паруса...', reply_markup=types.ReplyKeyboardRemove())
     user = await get_user(state, message.from_user.id)
     if keys_exists(['db_key', 'org_rn', 'group'], user):
         try:
@@ -84,7 +83,7 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
             # Отправка табеля посещаемости пользователю
             if os.path.exists(file_path):
                 with open(file_path, 'rb') as file:
-                    await message.reply_document(file)
+                    await message.reply_document(file, reply_markup=types.ReplyKeyboardRemove())
                 # Удаление файла из временной директории
                 os.remove(file_path)
         except Exception as error:
@@ -103,9 +102,8 @@ async def send_timesheet(message: types.Message, state: FSMContext, file_path):
     try:
         org = await get_org(state, message.from_user.id)
         if keys_exists(['db_key', 'company_rn'], org):
-            await message.reply('Отправка табеля посещаемости в Парус...', reply_markup=types.ReplyKeyboardRemove())
             send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
-            await message.reply(send_result)
+            await message.reply(send_result, reply_markup=types.ReplyKeyboardRemove())
             # Удаление файла из временной директории
             os.remove(file_path)
             return True
@@ -197,8 +195,6 @@ async def process_fio(message: types.Message, state: FSMContext):
         # Авторизация
         await cmd_start(message, state)
         return
-    # Поиск учреждения в MongoDB
-    await message.reply('Авторизация пользователя...')
     # Поиск сотрудника учреждения по ФИО в Парусе
     try:
         person_rn = parus.find_person_in_org(user['db_key'], user['org_rn'], family, firstname, lastname)
@@ -213,9 +209,7 @@ async def process_fio(message: types.Message, state: FSMContext):
         await echo_error(message, f'Ошибка поиска сотрудника в Парусе: {error}')
         await state.finish()
         return
-    # Сотрудник учреждения найден
-    lastname_with_space = f' {lastname}' if lastname is not None else None
-    await message.reply(f'{firstname}{lastname_with_space}, добро пожаловать!')
+    # Сохранение реквизитов сотрудника учреждения
     user.update({'person_rn': person_rn, 'family': family, 'firstname': firstname, 'lastname': lastname})
     await update_user(state, user)
     # Проверка наличия файла с табелем во временной директории
@@ -331,7 +325,6 @@ async def prompt_to_input_group(message: types.Message, state):
     user = await get_user(state, message.from_user.id)
     # Получение списка групп учреждения
     if keys_exists(['db_key', 'org_rn'], user):
-        await message.reply('Получение списка групп...')
         try:
             groups = parus.get_groups(user['db_key'], user['org_rn'])
             # Действующие группы в учреждении не найдены
