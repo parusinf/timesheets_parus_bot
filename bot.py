@@ -76,75 +76,50 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
     Получение табеля посещаемости из Паруса
     """
     await message.reply('Получение табеля посещаемости из Паруса...', reply_markup=types.ReplyKeyboardRemove())
-    # Получение табеля посещаемости из Паруса в файл CSV во временную директорию
-    try:
-        # Поиск пользователя в MongoDB
-        user = users.find_one({'user_id': message.from_user.id})
-        if keys_exists(['db_key', 'org_rn', 'group'], user):
+    user = await get_user(state, message.from_user.id)
+    if keys_exists(['db_key', 'org_rn', 'group'], user):
+        try:
+            # Получение табеля посещаемости из Паруса в файл CSV во временную директорию
             file_path = parus.receive_timesheet(user['db_key'], user['org_rn'], user['group'])
-            # Отправка пользователю табеля посещаемости
-            with open(file_path, 'rb') as file:
-                await message.reply_document(file)
-            # Удаление файла из временной директории
-            os.remove(file_path)
-        else:
-            # Обработка ИНН, если пользователь не найден или не содержит организацию или группу
-            await prompt_to_input_inn(message)
-            await Form.inn.set()
-    except Exception as error:
-        await message.reply(f'Ошибка получения табеля посещаемости из Паруса:\n${error}')
+            # Отправка табеля посещаемости пользователю
+            if os.path.exists(file_path):
+                with open(file_path, 'rb') as file:
+                    await message.reply_document(file)
+                # Удаление файла из временной директории
+                os.remove(file_path)
+        except Exception as error:
+            await message.reply(f'Ошибка получения табеля посещаемости из Паруса:\n${error}')
+    else:
+        # Авторизация и повторное получение табеля
+        await cmd_start(message, state)
     # Завершение команды
     await state.finish()
 
 
-async def prompt_to_input_inn(message: types.Message):
+async def send_timesheet(message: types.Message, state: FSMContext, file_path):
     """
-    Приглашение к вводу ИНН учреждения
+    Отправка табеля посещаемости в Парус
     """
-    await message.reply("ИНН вашего учреждения?")
-
-
-async def prompt_to_input_fio(message: types.Message):
-    """
-    Приглашение к вводу ФИО сотрудника учреждения
-    """
-    await message.reply('Ваши Фамилия Имя Отчество?')
-
-
-async def prompt_to_input_group(message: types.Message, state):
-    """
-    Приглашение к выбору групп учреждения
-    """
-    # Поиск пользователя в MongoDB
-    user = users.find_one({'user_id': message.from_user.id})
-    # Получение списка групп учреждения
-    if keys_exists(['db_key', 'org_rn'], user):
-        await message.reply('Получение списка групп...')
-        try:
-            groups = parus.get_groups(user['db_key'], user['org_rn'])
-            # Действующие группы в учреждении не найдены
-            if groups is None:
-                raise AttributeError('Действующие группы в учреждении не найдены')
-            # Приглашение к выбору группы учреждения
-            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            markup.add(*groups.split(';'))
-            await message.reply('Выберите группу', reply_markup=markup)
-        except Exception as error:
-            await echo_error(message, f'Ошибка получения списка групп из Паруса: {error}')
-            await state.finish()
-    else:
-        # Обработка ИНН, если пользователь не найден или не содержит организацию
-        await prompt_to_input_inn(message)
-        await Form.inn.set()
+    try:
+        org = await get_org(state, message.from_user.id)
+        if keys_exists(['db_key', 'company_rn'], org):
+            await message.reply('Отправка табеля посещаемости в Парус...', reply_markup=types.ReplyKeyboardRemove())
+            send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
+            await message.reply(send_result)
+            # Удаление файла из временной директории
+            os.remove(file_path)
+            return True
+    except Exception as error:
+        await echo_error(message, f'Ошибка отправки табеля посещаемости в Парус: {error}')
+    return False
 
 
 @dp.message_handler(commands='start')
 async def cmd_start(message: types.Message, state: FSMContext):
     """
-    Авторизация и отправка табеля посещаемости
+    Авторизация и отправка или получение табеля посещаемости из Паруса
     """
-    # Поиск пользователя в MongoDB
-    user = users.find_one({'user_id': message.from_user.id})
+    user = await get_user(state, message.from_user.id)
     if keys_exists(['org_rn', 'person_rn', 'group'], user):
         # Получение табеля посещаемости из Паруса
         await receive_timesheet(message, state)
@@ -158,12 +133,8 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await Form.fio.set()
     elif not keys_exists(['group'], user):
         # Обработка группы, если её нет
-        try:
-            await prompt_to_input_group(message, state)
-            await Form.group.set()
-        except Exception as error:
-            await echo_error(message, f'Ошибка получения списка групп из Паруса: {error}')
-            await state.finish()
+        await prompt_to_input_group(message, state)
+        await Form.group.set()
 
 
 @dp.message_handler(state='*', commands='cancel')
@@ -198,7 +169,7 @@ async def process_inn(message: types.Message, state: FSMContext):
         org = parus.find_org_by_inn(inn)
         if org is not None:
             # Учреждение найдено
-            orgs.insert_one(org)
+            await insert_org(state, org)
         else:
             # Учреждение не найдено
             await message.reply(f'Учреждение с ИНН {inn} не подключено к сервису.\n'
@@ -207,13 +178,8 @@ async def process_inn(message: types.Message, state: FSMContext):
             return
     # Вывод информации об учреждении
     await message.reply(f'Учреждение: {org["agent_name"]}\nОрганизация: {org["company_agent_name"]}')
-    # Добавление пользователя с привязкой к учреждению в MongoDB
-    users.insert_one({
-        'db_key': org['db_key'],
-        'user_id': message.from_user.id,
-        'chat_id': message.chat.id,
-        'org_rn': org['rn'],
-    })
+    # Создание пользователя с привязкой к учреждению
+    await create_user(state, message, org)
     # Следующее состояние: обработка ФИО
     await prompt_to_input_fio(message)
     await Form.next()
@@ -226,12 +192,10 @@ async def process_fio(message: types.Message, state: FSMContext):
     """
     fio = message.text
     family, firstname, lastname = split_fio(fio)
-    # Поиск пользователя в MongoDB
-    user = users.find_one({'user_id': message.from_user.id})
+    user = await get_user(state, message.from_user.id)
     if not keys_exists(['db_key', 'org_rn'], user):
-        # Обработка ИНН, если пользователь не найден
-        await prompt_to_input_inn(message)
-        await Form.inn.set()
+        # Авторизация
+        await cmd_start(message, state)
         return
     # Поиск учреждения в MongoDB
     await message.reply('Авторизация пользователя...')
@@ -252,20 +216,18 @@ async def process_fio(message: types.Message, state: FSMContext):
     # Сотрудник учреждения найден
     lastname_with_space = f' {lastname}' if lastname is not None else None
     await message.reply(f'{firstname}{lastname_with_space}, добро пожаловать!')
-    users.update_one(
-        {'user_id': message.from_user.id},
-        {'$set': {'person_rn': person_rn, 'family': family, 'firstname': firstname, 'lastname': lastname}}
-    )
+    user.update({'person_rn': person_rn, 'family': family, 'firstname': firstname, 'lastname': lastname})
+    await update_user(state, user)
     # Проверка наличия файла с табелем во временной директории
     data = await state.get_data()
     if keys_exists(['file_path'], data):
         file_path = data['file_path']
         if os.path.exists(file_path):
-            await send_timesheet(message, file_path)
+            await send_timesheet(message, state, file_path)
             del data['file_path']
             await state.set_data(data)
     else:
-        # Следующее состояние: обработка группы
+        # Обработка группы
         await prompt_to_input_group(message, state)
         await Form.group.set()
 
@@ -275,20 +237,17 @@ async def process_group(message: types.Message, state: FSMContext):
     """
     Обработка группы
     """
-    group = message.text
-    user = users.find_one({'user_id': message.from_user.id})
-    if user is None:
-        # Обработка ИНН, если пользователь не найден
-        await prompt_to_input_inn(message)
-        await Form.inn.set()
-        return
-    # Сохранение группы
-    users.update_one(
-        {'user_id': message.from_user.id},
-        {'$set': {'group': group}}
-    )
-    # Получение табеля посещаемости из Паруса
-    await receive_timesheet(message, state)
+    user = await get_user(state, message.from_user.id)
+    if user is not None:
+        # Сохранение группы
+        group = message.text
+        user.update({'group': group})
+        await update_user(state, user)
+        # Получение табеля посещаемости из Паруса
+        await receive_timesheet(message, state)
+    else:
+        # Авторизация
+        await cmd_start(message, state)
 
 
 @dp.message_handler(commands='group')
@@ -297,12 +256,13 @@ async def cmd_group(message: types.Message, state: FSMContext):
     Выбор другой группы
     """
     # Удаление группы
-    users.update_one(
-        {'user_id': message.from_user.id},
-        {'$unset': {'group': 1}}
-    )
+    user = await get_user(state, message.from_user.id)
+    if keys_exists(['group'], user):
+        del user['group']
+        await update_user(state, user)
     # Обработка другой группы
-    await cmd_start(message, state)
+    await prompt_to_input_group(message, state)
+    await Form.group.set()
 
 
 @dp.message_handler(commands='org')
@@ -310,19 +270,19 @@ async def cmd_org(message: types.Message, state: FSMContext):
     """
     Авторизация другого учреждения
     """
-    # Удаление учреждения и группы
-    users.delete_one({'user_id': message.from_user.id})
+    # Удаление пользователя
+    await delete_user(state, message.from_user.id)
     # Обработка другого ИНН
     await cmd_start(message, state)
 
 
 @dp.message_handler(commands='reset')
-async def cmd_reset(message: types.Message):
+async def cmd_reset(message: types.Message, state: FSMContext):
     """
     Удаление авторизации
     """
-    users.delete_one({'user_id': message.from_user.id})
-    await message.reply('Авторизация удалена', reply_markup=types.ReplyKeyboardRemove())
+    await delete_user(state, message.from_user.id)
+    await message.reply('Авторизация в Парусе отменена', reply_markup=types.ReplyKeyboardRemove())
 
 
 @dp.message_handler(content_types=ContentType.DOCUMENT)
@@ -340,7 +300,7 @@ async def process_timesheet(message: types.Message, state: FSMContext):
                 # Загрузка файла от пользователя во временную директорию
                 await message.document.download(destination_file=file_path)
                 # Отправка табеля посещаемости в Парус
-                success_send = await send_timesheet(message, file_path)
+                success_send = await send_timesheet(message, state, file_path)
                 if not success_send:
                     await state.update_data(file_path=file_path)
                     await cmd_start(message, state)
@@ -350,26 +310,96 @@ async def process_timesheet(message: types.Message, state: FSMContext):
             await echo_error(message, 'Файл не содержит табель посещаемости')
 
 
-async def send_timesheet(message: types.Message, file_path):
+async def prompt_to_input_inn(message: types.Message):
     """
-    Отправка табеля посещаемости в Парус
+    Приглашение к вводу ИНН учреждения
     """
-    try:
-        # Поиск пользователя в MongoDB
-        user = users.find_one({'user_id': message.from_user.id})
+    await message.reply("ИНН вашего учреждения?")
+
+
+async def prompt_to_input_fio(message: types.Message):
+    """
+    Приглашение к вводу ФИО сотрудника учреждения
+    """
+    await message.reply('Ваши Фамилия Имя Отчество?')
+
+
+async def prompt_to_input_group(message: types.Message, state):
+    """
+    Приглашение к выбору групп учреждения
+    """
+    user = await get_user(state, message.from_user.id)
+    # Получение списка групп учреждения
+    if keys_exists(['db_key', 'org_rn'], user):
+        await message.reply('Получение списка групп...')
+        try:
+            groups = parus.get_groups(user['db_key'], user['org_rn'])
+            # Действующие группы в учреждении не найдены
+            if groups is None:
+                raise AttributeError('Действующие группы в учреждении не найдены')
+            # Приглашение к выбору группы учреждения
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+            markup.add(*groups.split(';'))
+            await message.reply('Выберите группу', reply_markup=markup)
+        except Exception as error:
+            await echo_error(message, f'Ошибка получения списка групп из Паруса: {error}')
+            await state.finish()
+    else:
+        # Авторизация
+        await cmd_start(message, state)
+
+
+async def get_user(state, user_id):
+    data = await state.get_data()
+    if 'user' in data:
+        return data['user']
+    else:
+        return users.find_one({'user_id': user_id})
+
+
+async def create_user(state, message, org):
+    user = {
+        'db_key': org['db_key'],
+        'user_id': message.from_user.id,
+        'chat_id': message.chat.id,
+        'org_rn': org['rn'],
+    }
+    await state.update_data({'user': user})
+    users.insert_one(user)
+
+
+async def update_user(state, user):
+    await state.update_data({'user': user})
+    users.update_one(
+        {'user_id': user['user_id']},
+        {'$set': user}
+    )
+
+
+async def delete_user(state, user_id):
+    data = await state.get_data()
+    if keys_exists(['user'], data):
+        del data['user']
+        await state.set_data(data)
+    users.delete_one({'user_id': user_id})
+
+
+async def get_org(state, user_id):
+    data = await state.get_data()
+    if keys_exists(['org'], data):
+        return data['org']
+    else:
+        user = await get_user(state, user_id)
         if keys_exists(['org_rn'], user):
-            # Поиск учреждения в MongoDB
-            org = orgs.find_one({'rn': user['org_rn']})
-            if keys_exists(['db_key', 'company_rn'], org):
-                await message.reply('Отправка табеля посещаемости в Парус...', reply_markup=types.ReplyKeyboardRemove())
-                send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
-                await message.reply(send_result)
-                # Удаление файла из временной директории
-                os.remove(file_path)
-                return True
-    except Exception as error:
-        await echo_error(message, f'Ошибка отправки табеля посещаемости в Парус: {error}')
-    return False
+            return orgs.find_one({'rn': user['org_rn']})
+        else:
+            return None
+
+
+async def insert_org(state, org):
+    await state.update_data({org: org})
+    orgs.insert_one(org)
+
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
