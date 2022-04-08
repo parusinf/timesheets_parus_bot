@@ -129,7 +129,7 @@ def receive_timesheet(db_key, org_rn, group, period=datetime.now()):
 
 def send_timesheet(db_key, company_rn, file_path):
     """
-    Получение табеля посещаемости группы в формате CSV
+    Отправка табеля посещаемости группы в формате CSV в Парус
     :param db_key: ключ базы данных Паруса
     :param company_rn: RN организации
     :param file_path: имя файла с табелем посещаемости в формате CSV во временной директории
