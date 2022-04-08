@@ -177,7 +177,7 @@ async def process_inn(message: types.Message, state: FSMContext):
     # Вывод информации об учреждении
     await message.reply(f'Учреждение: {org["agent_name"]}\nОрганизация: {org["company_agent_name"]}')
     # Создание пользователя с привязкой к учреждению
-    await create_user(state, message, org)
+    await create_user(state, message.from_user.id, org)
     # Следующее состояние: обработка ФИО
     await prompt_to_input_fio(message)
     await Form.next()
@@ -350,11 +350,10 @@ async def get_user(state, user_id):
         return users.find_one({'user_id': user_id})
 
 
-async def create_user(state, message, org):
+async def create_user(state, user_id, org):
     user = {
         'db_key': org['db_key'],
-        'user_id': message.from_user.id,
-        'chat_id': message.chat.id,
+        'user_id': user_id,
         'org_rn': org['rn'],
     }
     await state.update_data({'user': user})
