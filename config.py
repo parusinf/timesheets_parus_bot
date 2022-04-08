@@ -3,8 +3,8 @@ MONGODB_HOST = 'localhost'
 MONGODB_PORT = 27017
 
 # Webhook
-WEBHOOK_HOST = 'https://timesheets.parusinf.ru'
-WEBHOOK_PATH = '/timesheets_parus_bot'
+WEBHOOK_HOST = 'https://tsheebot.parusinf.ru'
+WEBHOOK_PATH = '/bot'
 WEBHOOK_URL = f"{WEBHOOK_HOST}{WEBHOOK_PATH}"
 
 # Web server
