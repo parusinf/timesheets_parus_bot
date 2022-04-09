@@ -19,7 +19,7 @@ import config as cfg
 from secret_config import bot_token
 import parus
 from helpers import split_fio, temp_file_path, echo_error, keys_exists
-
+from cp1251 import decode_cp1251
 
 # MongoDB
 client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
@@ -101,11 +101,11 @@ async def send_timesheet(message: types.Message, state: FSMContext, file_path):
     """
     try:
         org = await get_org(state, message.from_user.id)
-        if keys_exists(['db_key', 'company_rn'], org):
+        if keys_exists(['db_key', 'company_rn', 'org_inn'], org):
+            # Отправка табеля
             send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
             await message.reply(send_result, reply_markup=types.ReplyKeyboardRemove())
-            # Удаление файла из временной директории
-            os.remove(file_path)
+            await state.finish()
             return True
     except Exception as error:
         await echo_error(message, f'Ошибка отправки табеля посещаемости в Парус: {error}')
@@ -158,19 +158,18 @@ async def process_inn(message: types.Message, state: FSMContext):
     """
     Обработка ИНН
     """
-    inn = message.text
+    org_inn = message.text
     # Поиск учреждения в MongoDB по ИНН
-    org = orgs.find_one({'org_inn': inn})
+    org = orgs.find_one({'org_inn': org_inn})
     if not keys_exists(['org_name', 'company_name'], org):
-        await message.reply('Авторизация учреждения...')
         # Поиск базы данных Паруса и учреждения в ней по ИНН
-        org = parus.find_org_by_inn(inn)
+        org = parus.find_org_by_inn(org_inn)
         if org is not None:
             # Учреждение найдено
             await insert_org(state, org)
         else:
             # Учреждение не найдено
-            await message.reply(f'Учреждение с ИНН {inn} не подключено к сервису.\n'
+            await message.reply(f'Учреждение с ИНН {org_inn} не подключено к сервису.\n'
                                 f'Обратитесь к разработчику {cfg.DEVELOPER_TELEGRAM}')
             await state.finish()
             return
@@ -178,9 +177,9 @@ async def process_inn(message: types.Message, state: FSMContext):
     await message.reply(f'Учреждение: {org["org_name"]}\nОрганизация: {org["company_name"]}')
     # Создание пользователя с привязкой к учреждению
     await create_user(state, message.from_user.id, org)
-    # Следующее состояние: обработка ФИО
+    # Обработка ФИО
     await prompt_to_input_fio(message)
-    await Form.next()
+    await Form.fio.set()
 
 
 @dp.message_handler(state=Form.fio)
@@ -293,15 +292,36 @@ async def process_timesheet(message: types.Message, state: FSMContext):
             try:
                 # Загрузка файла от пользователя во временную директорию
                 await message.document.download(destination_file=file_path)
-                # Отправка табеля посещаемости в Парус
-                success_send = await send_timesheet(message, state, file_path)
-                if not success_send:
-                    await state.update_data(file_path=file_path)
-                    await cmd_start(message, state)
             except Exception as error:
                 await echo_error(message, f'Ошибка загрузки файла с табелем посещаемости: {error}')
+            # Проверка ИНН в табеле
+            org_inn_from_file = get_org_inn_from_file(file_path)
+            org = await get_org(state, message.from_user.id)
+            if keys_exists(['org_inn'], org) and org_inn_from_file == org['org_inn']:
+                # Отправка табеля посещаемости в Парус
+                if await send_timesheet(message, state, file_path):
+                    return
+            # Сохранение пути файла для загрузки после авторизации
+            await state.update_data({'file_path': file_path})
+            # Удаление авторизации в другом учреждении
+            if keys_exists(['org_inn'], org):
+                await delete_user(state, message.from_user.id)
+            # Авторизация в учреждении с ИНН в табеле
+            message.text = org_inn_from_file
+            await process_inn(message, state)
         else:
             await echo_error(message, 'Файл не содержит табель посещаемости')
+
+
+def get_org_inn_from_file(file_path):
+    """
+    Получение ИНН учреждения из файла табеля
+    """
+    with open(file_path, 'rb') as file:
+        file_content = decode_cp1251(file.read())
+    file_lines = file_content.splitlines()
+    org_fields = file_lines[1].split(';') if len(file_lines) >= 2 else None
+    return org_fields[1] if len(org_fields) >= 2 else None
 
 
 async def prompt_to_input_inn(message: types.Message):

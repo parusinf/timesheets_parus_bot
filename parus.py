@@ -148,4 +148,6 @@ def send_timesheet(db_key, company_rn, file_path):
             # Вызов процедуры Паруса
             cursor.callproc('UDO_P_RECEIVE_TIMESHEET', [company_rn, file_content, result_var])
             connection.commit()
+            # Удаление файла из временной директории
+            os.remove(file_path)
             return result_var.getvalue()
