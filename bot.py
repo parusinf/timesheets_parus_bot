@@ -83,7 +83,12 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
             # Отправка табеля посещаемости пользователю
             if os.path.exists(file_path):
                 with open(file_path, 'rb') as file:
-                    await message.reply_document(file, reply_markup=types.ReplyKeyboardRemove())
+                    org = await get_org(state, message.from_user.id)
+                    org_info = f'Учреждение: {org["org_name"]}\n' if keys_exists(['org_name'], org) else None
+                    await message.reply_document(
+                        file,
+                        caption=f'{org_info}Группа: {user["group"]}',
+                        reply_markup=types.ReplyKeyboardRemove())
                 # Удаление файла из временной директории
                 os.remove(file_path)
         except Exception as error:
