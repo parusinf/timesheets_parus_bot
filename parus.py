@@ -2,7 +2,7 @@
 Функции для взаимодействия бота с Парусом
 
 В файле secret_config.py должен быть описан словарь parus_db_dict с базами данных Oracle для подключению к Парусу:
-parus_db_dict = {
+PARUS_DB_DICT = {
     'unique_db_key': ('<db_user>', '<db_user_password>', '<host>:<port>/<sid>'),
 }
 """
@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 import cx_Oracle
 import config as cfg
-from secret_config import parus_db_dict
+from secret_config import PARUS_DB_DICT
 from helpers import temp_file_path
 import os
 from cp1251 import encode_cp1251, decode_cp1251
@@ -27,7 +27,7 @@ def find_org_by_inn(inn):
     :param inn: ИНН
     """
     # Поиск Паруса, обслуживающего учреждение с заданным ИНН
-    for db_key, db in parus_db_dict.items():
+    for db_key, db in PARUS_DB_DICT.items():
         try:
             # Соединение с Парусом
             with cx_Oracle.connect(*db) as connection:
@@ -70,7 +70,7 @@ def find_person_in_org(db_key, org_rn, family, firstname, lastname):
     :return: RN сотрудника
     """
     # Соединение с Парусом
-    db = parus_db_dict[db_key]
+    db = PARUS_DB_DICT[db_key]
     with cx_Oracle.connect(*db) as connection:
         # Создание курсора
         with connection.cursor() as cursor:
@@ -89,7 +89,7 @@ def get_groups(db_key, org_rn):
     :return: список мнемокодов групп через ";"
     """
     # Соединение с Парусом
-    db = parus_db_dict[db_key]
+    db = PARUS_DB_DICT[db_key]
     with cx_Oracle.connect(*db) as connection:
         # Создание курсора
         with connection.cursor() as cursor:
@@ -110,7 +110,7 @@ def receive_timesheet(db_key, org_rn, group, period=datetime.now()):
     :return: имя файла с табелем посещаемости в формате CSV во временной директории
     """
     # Соединение с Парусом
-    db = parus_db_dict[db_key]
+    db = PARUS_DB_DICT[db_key]
     with cx_Oracle.connect(*db) as connection:
         # Создание курсора
         with connection.cursor() as cursor:
@@ -136,7 +136,7 @@ def send_timesheet(db_key, company_rn, file_path):
     :return: результат отправки табеля посещаемости в Парус
     """
     # Соединение с Парусом
-    db = parus_db_dict[db_key]
+    db = PARUS_DB_DICT[db_key]
     with cx_Oracle.connect(*db) as connection:
         # Создание курсора
         with connection.cursor() as cursor:
