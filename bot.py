@@ -31,7 +31,7 @@ ping - проверка отклика бота
 help - что может делать этот бот?'''
 
 # Уровень логов
-logging.basicConfig(level=os.environ['LOGGING_LEVEL'] or logging.WARNING)
+logging.basicConfig(level=os.environ['LOGGING_LEVEL'] or logging.INFO)
 
 # MongoDB
 client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
