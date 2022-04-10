@@ -43,5 +43,5 @@ async def echo_error(message, error):
     logging.error(error_message)
 
 
-def os_environ(env, default=''):
+def os_environ(env, default=None):
     return os.environ[env] if keys_exists([env], os.environ) else default
