@@ -13,13 +13,12 @@ from aiogram.dispatcher.filters import Text
 from aiogram.types.message import ContentType
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ParseMode
-from aiogram.utils import executor
 from pymongo import MongoClient
 import config as cfg
-from secret_config import bot_token
 import parus
 from helpers import split_fio, temp_file_path, echo_error, keys_exists
 from cp1251 import decode_cp1251
+from secret_config import BOT_TOKEN
 
 # MongoDB
 client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
@@ -28,8 +27,7 @@ orgs = db['orgs']
 users = db['users']
 
 # Aiogram Telegram Bot
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=bot_token)
+bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
@@ -92,7 +90,7 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
                 # Удаление файла из временной директории
                 os.remove(file_path)
         except Exception as error:
-            await message.reply(f'Ошибка получения табеля посещаемости из Паруса:\n${error}')
+            await echo_error(f'Ошибка получения табеля посещаемости из Паруса:\n${error}')
     else:
         # Авторизация и повторное получение табеля
         await cmd_start(message, state)
@@ -299,10 +297,12 @@ async def process_timesheet(message: types.Message, state: FSMContext):
                 await message.document.download(destination_file=file_path)
             except Exception as error:
                 await echo_error(message, f'Ошибка загрузки файла с табелем посещаемости: {error}')
-            # Проверка ИНН в табеле
+            # Проверка авторизации учреждения и пользователя
             org_inn_from_file = get_org_inn_from_file(file_path)
             org = await get_org(state, message.from_user.id)
-            if keys_exists(['org_inn'], org) and org_inn_from_file == org['org_inn']:
+            user = await get_user(state, message.from_user.id)
+            if keys_exists(['org_inn'], org) and org_inn_from_file == org['org_inn'] \
+                    and keys_exists(['person_rn'], user):
                 # Отправка табеля посещаемости в Парус
                 if await send_timesheet(message, state, file_path):
                     return
@@ -418,5 +418,31 @@ async def insert_org(state, org):
     orgs.insert_one(org)
 
 
+async def on_startup(dispatcher):
+    logging.info('Starting webhook connection')
+    from aiogram.types.input_file import InputFile
+    from pathlib import Path
+    from secret_config import CERTIFICATE_PATH
+    await bot.set_webhook(
+       cfg.WEBHOOK_URL,
+       certificate=InputFile(Path(CERTIFICATE_PATH)),
+       drop_pending_updates=True)
+
+
+async def on_shutdown(dispatcher):
+    await bot.set_webhook('')
+    logging.info('Shutting down webhook connection')
+
+
 if __name__ == '__main__':
-    executor.start_polling(dp, skip_updates=True)
+    logging.basicConfig(level=logging.WARNING)
+    from aiogram.utils.executor import start_webhook
+    start_webhook(
+        dispatcher=dp,
+        webhook_path=cfg.WEBHOOK_PATH,
+        skip_updates=True,
+        host=cfg.WEBAPP_HOST,
+        port=cfg.WEBAPP_PORT,
+        on_startup=on_startup,
+        on_shutdown=on_shutdown,
+    )
