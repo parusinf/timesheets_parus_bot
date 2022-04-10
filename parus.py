@@ -43,7 +43,7 @@ def find_org_by_inn(inn):
                     cursor.callproc('UDO_FIND_PSORG_BY_INN',
                                     [inn, rn_var, code_var, agent_name_var, company_rn_var, company_agent_name_var])
                     rn = rn_var.getvalue()
-                    if rn is not None:
+                    if rn:
                         return {
                             'db_key': db_key,
                             'org_inn': inn,

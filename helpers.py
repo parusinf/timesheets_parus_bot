@@ -28,7 +28,7 @@ def keys_exists(keys, dictionary):
     :param dictionary: словарь, в котором осуществляется поиск ключей
     :return: True - в словаре есть все ключи, False - в словаре нет хотя бы одного ключа
     """
-    if dictionary is not None:
+    if dictionary:
         for key in keys:
             if key not in dictionary:
                 return False

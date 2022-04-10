@@ -31,7 +31,7 @@ ping - проверка отклика бота
 help - что может делать этот бот?'''
 
 # Уровень логов
-logging.basicConfig(level=os.environ['LOGGING_LEVEL'] or logging.INFO)
+logging.basicConfig(level=os.environ['LOGGING_LEVEL'] if keys_exists(['LOGGING_LEVEL'], os.environ) else logging.INFO)
 
 # MongoDB
 client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
@@ -150,7 +150,7 @@ async def process_inn(message: types.Message, state: FSMContext):
     if not keys_exists(['org_name', 'company_name'], org):
         # Поиск базы данных Паруса и учреждения в ней по ИНН
         org = parus.find_org_by_inn(org_inn)
-        if org is not None:
+        if org:
             # Учреждение найдено
             await insert_org(state, org)
         else:
@@ -184,7 +184,7 @@ async def process_fio(message: types.Message, state: FSMContext):
     try:
         person_rn = parus.find_person_in_org(user['db_key'], user['org_rn'], family, firstname, lastname)
         # Сотрудник учреждения не найден
-        if person_rn is None:
+        if not person_rn:
             # Сотрудник не найден в Парусе
             await message.reply(f'Сотрудник {fio} в учреждении не найден.\n'
                                 f'Обратитесь к разработчику {cfg.DEVELOPER_TELEGRAM}')
@@ -217,7 +217,7 @@ async def process_group(message: types.Message, state: FSMContext):
     Обработка группы
     """
     user = await get_user(state, message.from_user.id)
-    if user is not None:
+    if user:
         # Сохранение группы
         group = message.text
         user.update({'group': group})
@@ -308,7 +308,7 @@ async def process_timesheet(message: types.Message, state: FSMContext):
     Отправка табеля посещаемости в Парус
     """
     # От пользователя получен файл с табелем посещаемости
-    if message.document is not None:
+    if message.document:
         file_name = message.document['file_name']
         file_path = temp_file_path(file_name)
         file_ext = os.path.splitext(file_name)[1]
@@ -374,7 +374,7 @@ async def prompt_to_input_group(message: types.Message, state):
         try:
             groups = parus.get_groups(user['db_key'], user['org_rn'])
             # Действующие группы в учреждении не найдены
-            if groups is None:
+            if not groups:
                 raise AttributeError('Действующие группы в учреждении не найдены')
             # Приглашение к выбору группы учреждения
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
