@@ -20,6 +20,19 @@ from helpers import split_fio, temp_file_path, echo_error, keys_exists
 from cp1251 import decode_cp1251
 from secret_config import BOT_TOKEN
 
+
+# Команды бота
+BOT_COMMANDS = '''start - получение табеля из Паруса
+group - выбор другой группы
+org - выбор другого учреждения
+cancel - отмена текущей команды
+reset - отмена авторизации в Парусе
+ping - проверка отклика бота
+help - что может делать этот бот?'''
+
+# Уровень логов
+logging.basicConfig(level=logging.WARNING)
+
 # MongoDB
 client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
 db = client['timesheets_parus_bot']
@@ -32,41 +45,11 @@ storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
 
-# Состояния будут представлены в хранилище как 'Form:<state>'
+# Состояния конечного автомата
 class Form(StatesGroup):
-    inn = State()
-    fio = State()
-    group = State()
-
-
-@dp.message_handler(commands='help')
-async def cmd_help(message: types.Message):
-    """
-    Что может делать этот бот?
-    """
-    await message.reply(
-        md.text(
-            md.text(
-                'Получение и отправка табелей из мобильного приложения ',
-                md.link('Табели посещаемости', 'https://github.com/parusinf/timesheets'),
-                ' в систему управления ',
-                md.link('Парус', 'https://parus.com/'),
-            ),
-            md.text(md.bold('\nКоманды')),
-            md.text(md.link('/start', '/start'), ' - получение табеля из Паруса'),
-            md.text(md.link('/group', '/group'), ' - выбор другой группы'),
-            md.text(md.link('/org', '/org'), ' - выбор другого учреждения'),
-            md.text(md.link('/cancel', '/cancel'), ' - отмена текущей команды'),
-            md.text(md.link('/reset', '/reset'), ' - отмена авторизации в Парусе'),
-            md.text(md.link('/help', '/help'), ' - что может делать этот бот?'),
-            md.text('\nДля отправки табеля в Парус отправьте его боту из мобильного приложения\n'),
-            md.text(md.bold('\nРазработчик')),
-            md.text(f'{cfg.DEVELOPER_NAME} {cfg.DEVELOPER_TELEGRAM}'),
-            sep='\n',
-        ),
-        reply_markup=types.ReplyKeyboardRemove(),
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    inn = State()    # ввод ИНН учреждения
+    fio = State()    # ввод ФИО сотрудника
+    group = State()  # ввод группы учреждения
 
 
 async def receive_timesheet(message: types.Message, state: FSMContext):
@@ -90,7 +73,7 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
                 # Удаление файла из временной директории
                 os.remove(file_path)
         except Exception as error:
-            await echo_error(f'Ошибка получения табеля посещаемости из Паруса:\n${error}')
+            await echo_error(message, f'Ошибка получения табеля посещаемости из Паруса:\n{error}')
     else:
         # Авторизация и повторное получение табеля
         await cmd_start(message, state)
@@ -281,6 +264,44 @@ async def cmd_reset(message: types.Message, state: FSMContext):
     await message.reply('Авторизация в Парусе отменена', reply_markup=types.ReplyKeyboardRemove())
 
 
+@dp.message_handler(commands='ping')
+async def cmd_ping(message: types.Message):
+    """
+    Проверка отклика бота
+    """
+    await message.reply('ok')
+
+
+@dp.message_handler(commands='help')
+async def cmd_help(message: types.Message):
+    """
+    Что может делать этот бот?
+    """
+    def format_command(command_line):
+        command, desc = [x.strip() for x in command_line.split('-')]
+        return md.text(md.link(f'/{command}', f'/{command}'), f' - {desc}')
+
+    commands = [format_command(cl) for cl in BOT_COMMANDS.splitlines()]
+    await message.reply(
+        md.text(
+            md.text(
+                'Получение и отправка табелей из мобильного приложения ',
+                md.link('Табели посещаемости', 'https://github.com/parusinf/timesheets'),
+                ' в систему управления ',
+                md.link('Парус', 'https://parus.com/'),
+            ),
+            md.text(md.bold('\nКоманды')),
+            *commands,
+            md.text('\nДля отправки табеля в Парус отправьте его боту из мобильного приложения\n'),
+            md.text(md.bold('Разработчик')),
+            md.text(f'{cfg.DEVELOPER_NAME} {cfg.DEVELOPER_TELEGRAM}'),
+            sep='\n',
+        ),
+        reply_markup=types.ReplyKeyboardRemove(),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 @dp.message_handler(content_types=ContentType.DOCUMENT)
 async def process_timesheet(message: types.Message, state: FSMContext):
     """
@@ -418,8 +439,8 @@ async def insert_org(state, org):
     orgs.insert_one(org)
 
 
-async def on_startup(dispatcher):
-    logging.info('Starting webhook connection')
+async def on_startup(dispatcher: Dispatcher):
+    logging.info(f'Starting webhook connection {dispatcher.data}')
     from aiogram.types.input_file import InputFile
     from pathlib import Path
     from secret_config import CERTIFICATE_PATH
@@ -429,13 +450,12 @@ async def on_startup(dispatcher):
        drop_pending_updates=True)
 
 
-async def on_shutdown(dispatcher):
+async def on_shutdown(dispatcher: Dispatcher):
     await bot.set_webhook('')
-    logging.info('Shutting down webhook connection')
+    logging.info(f'Shutting down webhook connection {dispatcher.data}')
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.WARNING)
     from aiogram.utils.executor import start_webhook
     start_webhook(
         dispatcher=dp,
