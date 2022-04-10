@@ -41,3 +41,7 @@ async def echo_error(message, error):
     error_message = error or 'Пропущено сообщение об ошибке'
     await message.reply(error_message)
     logging.error(error_message)
+
+
+def os_environ(env, default=''):
+    return os.environ[env] if keys_exists([env], os.environ) else default

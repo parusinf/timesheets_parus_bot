@@ -16,7 +16,7 @@ from aiogram.types import ParseMode
 from pymongo import MongoClient
 import config as cfg
 import parus
-from helpers import split_fio, temp_file_path, echo_error, keys_exists
+from helpers import split_fio, temp_file_path, echo_error, keys_exists, os_environ
 from cp1251 import decode_cp1251
 from secret_config import BOT_TOKEN
 
@@ -31,7 +31,7 @@ ping - проверка отклика бота
 help - что может делать этот бот?'''
 
 # Уровень логов
-logging.basicConfig(level=os.environ['LOGGING_LEVEL'] if keys_exists(['LOGGING_LEVEL'], os.environ) else logging.INFO)
+logging.basicConfig(level=os_environ('LOGGING_LEVEL', logging.INFO))
 
 # MongoDB
 client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
