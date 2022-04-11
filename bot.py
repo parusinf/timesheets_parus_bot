@@ -269,7 +269,7 @@ async def cmd_ping(message: types.Message):
     """
     Проверка отклика бота
     """
-    await message.reply('ok')
+    await message.reply('pong')
 
 
 @dp.message_handler(commands='help')
