@@ -5,6 +5,7 @@
 
 import logging
 import os
+from datetime import datetime
 import aiogram.utils.markdown as md
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -72,6 +73,8 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
                         reply_markup=types.ReplyKeyboardRemove())
                 # Удаление файла из временной директории
                 os.remove(file_path)
+                # Увеличение счётчика получения
+                await inc_receive_count(state, message.from_user.id)
         except Exception as error:
             await echo_error(message, f'Ошибка получения табеля посещаемости из Паруса:\n{error}')
     else:
@@ -92,6 +95,8 @@ async def send_timesheet(message: types.Message, state: FSMContext, file_path):
             send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
             await message.reply(send_result, reply_markup=types.ReplyKeyboardRemove())
             await state.finish()
+            # Увеличение счётчика отправки
+            await inc_send_count(state, message.from_user.id)
             return True
     except Exception as error:
         await echo_error(message, f'Ошибка отправки табеля посещаемости в Парус: {error}')
@@ -162,7 +167,7 @@ async def process_inn(message: types.Message, state: FSMContext):
     # Вывод информации об учреждении
     await message.reply(f'Учреждение: {org["org_name"]}\nОрганизация: {org["company_name"]}')
     # Создание пользователя с привязкой к учреждению
-    await create_user(state, message.from_user.id, org)
+    await create_user(state, message, org)
     # Обработка ФИО
     await prompt_to_input_fio(message)
     await Form.fio.set()
@@ -396,10 +401,14 @@ async def get_user(state, user_id):
         return users.find_one({'user_id': user_id})
 
 
-async def create_user(state, user_id, org):
+async def create_user(state, message: types.Message, org):
     user = {
         'db_key': org['db_key'],
-        'user_id': user_id,
+        'user_id': message.from_user.id,
+        'username': message.from_user.username,
+        'full_name': message.from_user.full_name,
+        'receive_count': 0,
+        'send_count': 0,
         'org_rn': org['org_rn'],
     }
     await state.update_data({'user': user})
@@ -412,6 +421,22 @@ async def update_user(state, user):
         {'user_id': user['user_id']},
         {'$set': user}
     )
+
+
+async def inc_send_count(state, user_id):
+    user = await get_user(state, user_id)
+    if user:
+        user['last_date'] = datetime.now()
+        user['send_count'] += 1
+        await update_user(state, user)
+
+
+async def inc_receive_count(state, user_id):
+    user = await get_user(state, user_id)
+    if user:
+        user['last_date'] = datetime.now()
+        user['receive_count'] += 1
+        await update_user(state, user)
 
 
 async def delete_user(state, user_id):
