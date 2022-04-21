@@ -2,10 +2,6 @@
 Вспомогательные функции
 """
 
-import logging
-import os
-from tempfile import gettempdir
-
 
 def split_fio(fio):
     """
@@ -18,7 +14,16 @@ def split_fio(fio):
 
 
 def temp_file_path(file_name):
-    return os.path.join(gettempdir(), file_name)
+    from os.path import join
+    from tempfile import gettempdir
+    return join(gettempdir(), file_name)
+
+
+async def echo_error(message, error):
+    error_message = error or 'Пропущено сообщение об ошибке'
+    await message.reply(error_message)
+    from logging import error
+    error(error_message)
 
 
 def keys_exists(keys, dictionary):
@@ -37,11 +42,6 @@ def keys_exists(keys, dictionary):
         return False
 
 
-async def echo_error(message, error):
-    error_message = error or 'Пропущено сообщение об ошибке'
-    await message.reply(error_message)
-    logging.error(error_message)
-
-
 def os_environ(env, default=None):
-    return os.environ[env] if keys_exists([env], os.environ) else default
+    from os import environ
+    return environ[env] if keys_exists([env], environ) else default
