@@ -225,7 +225,7 @@ async def process_group(message: types.Message, state: FSMContext):
     if user:
         # Сохранение группы
         group = message.text
-        user.update({'group': group})
+        user['group'] = group
         await update_user(state, user)
         # Получение табеля посещаемости из Паруса
         await receive_timesheet(message, state)
@@ -369,7 +369,7 @@ async def prompt_to_input_fio(message: types.Message):
     await message.reply('Ваши Фамилия Имя Отчество?')
 
 
-async def prompt_to_input_group(message: types.Message, state):
+async def prompt_to_input_group(message: types.Message, state: FSMContext):
     """
     Приглашение к выбору групп учреждения
     """
@@ -393,15 +393,15 @@ async def prompt_to_input_group(message: types.Message, state):
         await cmd_start(message, state)
 
 
-async def get_user(state, user_id):
+async def get_user(state: FSMContext, user_id: int):
     data = await state.get_data()
     if 'user' in data:
         return data['user']
     else:
-        return users.find_one({'user_id': user_id})
+        return users.find_one({'user_id': user_id}).copy()
 
 
-async def create_user(state, message: types.Message, org):
+async def create_user(state: FSMContext, message: types.Message, org):
     user = {
         'db_key': org['db_key'],
         'user_id': message.from_user.id,
@@ -415,7 +415,7 @@ async def create_user(state, message: types.Message, org):
     users.insert_one(user)
 
 
-async def update_user(state, user):
+async def update_user(state: FSMContext, user):
     await state.update_data({'user': user})
     users.update_one(
         {'user_id': user['user_id']},
@@ -423,7 +423,7 @@ async def update_user(state, user):
     )
 
 
-async def inc_send_count(state, user_id):
+async def inc_send_count(state: FSMContext, user_id: int):
     user = await get_user(state, user_id)
     if user:
         user['last_date'] = datetime.now()
@@ -431,7 +431,7 @@ async def inc_send_count(state, user_id):
         await update_user(state, user)
 
 
-async def inc_receive_count(state, user_id):
+async def inc_receive_count(state: FSMContext, user_id: int):
     user = await get_user(state, user_id)
     if user:
         user['last_date'] = datetime.now()
@@ -439,7 +439,7 @@ async def inc_receive_count(state, user_id):
         await update_user(state, user)
 
 
-async def delete_user(state, user_id):
+async def delete_user(state: FSMContext, user_id: int):
     data = await state.get_data()
     if keys_exists(['user'], data):
         del data['user']
@@ -447,7 +447,7 @@ async def delete_user(state, user_id):
     users.delete_one({'user_id': user_id})
 
 
-async def get_org(state, user_id):
+async def get_org(state: FSMContext, user_id: int):
     data = await state.get_data()
     if keys_exists(['org'], data):
         return data['org']
@@ -459,7 +459,7 @@ async def get_org(state, user_id):
             return None
 
 
-async def insert_org(state, org):
+async def insert_org(state: FSMContext, org):
     await state.update_data({'org': org})
     orgs.insert_one(org)
 
