@@ -398,7 +398,8 @@ async def get_user(state: FSMContext, user_id: int):
     if 'user' in data:
         return data['user']
     else:
-        return users.find_one({'user_id': user_id}).copy()
+        user = users.find_one({'user_id': user_id})
+        return dict(user) if user else None
 
 
 async def create_user(state: FSMContext, message: types.Message, org):
