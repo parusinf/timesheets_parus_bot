@@ -1,11 +1,5 @@
-"""
-Телеграм бот взаимодействия мобильного приложения "Табели посещаемости" с учётной системой "Парус"
-на основе асинхронной библиотеки aiogram
-"""
-
 import logging
 import os
-from datetime import datetime
 import aiogram.utils.markdown as md
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -14,12 +8,11 @@ from aiogram.dispatcher.filters import Text
 from aiogram.types.message import ContentType
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ParseMode
-from pymongo import MongoClient
-import config as cfg
-import parus
-from helpers import split_fio, temp_file_path, echo_error, keys_exists, os_environ
-from cp1251 import decode_cp1251
-from secret_config import BOT_TOKEN
+import app.store.parus.models as parus
+import app.store.local.models as local
+from tools.helpers import split_fio, temp_file_path, echo_error, keys_exists
+from tools.cp1251 import decode_cp1251
+from app.settings import config_token, config
 
 
 # Команды бота
@@ -32,18 +25,11 @@ ping - проверка отклика бота
 help - что может делать этот бот?'''
 
 # Уровень логов
-logging.basicConfig(level=os_environ('LOGGING_LEVEL', logging.INFO))
-
-# MongoDB
-client = MongoClient(cfg.MONGODB_HOST, cfg.MONGODB_PORT)
-db = client['timesheets_parus_bot']
-orgs = db['orgs']
-users = db['users']
+logging.basicConfig(level=logging.INFO)
 
 # Aiogram Telegram Bot
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
+bot = Bot(token=config_token['token'])
+dp = Dispatcher(bot, storage=MemoryStorage())
 
 
 # Состояния конечного автомата
@@ -57,15 +43,15 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
     """
     Получение табеля посещаемости из Паруса
     """
-    user = await get_user(state, message.from_user.id)
+    user = await local.get_user(state, message.from_user.id)
     if keys_exists(['db_key', 'org_rn', 'group'], user):
         try:
             # Получение табеля посещаемости из Паруса в файл CSV во временную директорию
-            file_path = parus.receive_timesheet(user['db_key'], user['org_rn'], user['group'])
+            file_path = await parus.receive_timesheet(user['db_key'], user['org_rn'], user['group'])
             # Отправка табеля посещаемости пользователю
             if os.path.exists(file_path):
                 with open(file_path, 'rb') as file:
-                    org = await get_org(state, message.from_user.id)
+                    org = await local.get_org(state, message.from_user.id)
                     org_info = f'Учреждение: {org["org_name"]}\n' if keys_exists(['org_name'], org) else None
                     await message.reply_document(
                         file,
@@ -74,7 +60,7 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
                 # Удаление файла из временной директории
                 os.remove(file_path)
                 # Увеличение счётчика получения
-                await inc_receive_count(state, message.from_user.id)
+                await local.inc_receive_count(state, message.from_user.id)
         except Exception as error:
             await echo_error(message, f'Ошибка получения табеля посещаемости из Паруса:\n{error}')
     else:
@@ -89,14 +75,15 @@ async def send_timesheet(message: types.Message, state: FSMContext, file_path):
     Отправка табеля посещаемости в Парус
     """
     try:
-        org = await get_org(state, message.from_user.id)
+        org = await local.get_org(state, message.from_user.id)
         if keys_exists(['db_key', 'company_rn', 'org_inn'], org):
             # Отправка табеля
-            send_result = parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
+            send_result = await parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
+            os.remove(file_path)
             await message.reply(send_result, reply_markup=types.ReplyKeyboardRemove())
             await state.finish()
             # Увеличение счётчика отправки
-            await inc_send_count(state, message.from_user.id)
+            await local.inc_send_count(state, message.from_user.id)
             return True
     except Exception as error:
         await echo_error(message, f'Ошибка отправки табеля посещаемости в Парус: {error}')
@@ -108,7 +95,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
     """
     Авторизация и отправка или получение табеля посещаемости из Паруса
     """
-    user = await get_user(state, message.from_user.id)
+    user = await local.get_user(state, message.from_user.id)
     if keys_exists(['org_rn', 'person_rn', 'group'], user):
         # Получение табеля посещаемости из Паруса
         await receive_timesheet(message, state)
@@ -151,23 +138,23 @@ async def process_inn(message: types.Message, state: FSMContext):
     """
     org_inn = message.text
     # Поиск учреждения в MongoDB по ИНН
-    org = orgs.find_one({'org_inn': org_inn})
+    org = await local.get_org_by_inn(org_inn)
     if not keys_exists(['org_name', 'company_name'], org):
         # Поиск базы данных Паруса и учреждения в ней по ИНН
-        org = parus.find_org_by_inn(org_inn)
+        org = await parus.get_org_by_inn(org_inn)
         if org:
             # Учреждение найдено
-            await insert_org(state, org)
+            await local.insert_org(state, org)
         else:
             # Учреждение не найдено
             await message.reply(f'Учреждение с ИНН {org_inn} не подключено к сервису.\n'
-                                f'Обратитесь к разработчику {cfg.DEVELOPER_TELEGRAM}')
+                                f"Обратитесь к разработчику {config['developer']['telegram']}")
             await state.finish()
             return
     # Вывод информации об учреждении
     await message.reply(f'Учреждение: {org["org_name"]}\nОрганизация: {org["company_name"]}')
     # Создание пользователя с привязкой к учреждению
-    await create_user(state, message, org)
+    await local.create_user(state, message, org)
     # Обработка ФИО
     await prompt_to_input_fio(message)
     await Form.fio.set()
@@ -180,19 +167,19 @@ async def process_fio(message: types.Message, state: FSMContext):
     """
     fio = message.text
     family, firstname, lastname = split_fio(fio)
-    user = await get_user(state, message.from_user.id)
+    user = await local.get_user(state, message.from_user.id)
     if not keys_exists(['db_key', 'org_rn'], user):
         # Авторизация
         await cmd_start(message, state)
         return
     # Поиск сотрудника учреждения по ФИО в Парусе
     try:
-        person_rn = parus.find_person_in_org(user['db_key'], user['org_rn'], family, firstname, lastname)
+        person_rn = await parus.find_person_in_org(user['db_key'], user['org_rn'], family, firstname, lastname)
         # Сотрудник учреждения не найден
         if not person_rn:
             # Сотрудник не найден в Парусе
             await message.reply(f'Сотрудник {fio} в учреждении не найден.\n'
-                                f'Обратитесь к разработчику {cfg.DEVELOPER_TELEGRAM}')
+                                f"Обратитесь к разработчику {config['developer']['telegram']}")
             await state.finish()
             return
     except Exception as error:
@@ -201,7 +188,7 @@ async def process_fio(message: types.Message, state: FSMContext):
         return
     # Сохранение реквизитов сотрудника учреждения
     user.update({'person_rn': person_rn, 'family': family, 'firstname': firstname, 'lastname': lastname})
-    await update_user(state, user)
+    await local.update_user(state, user)
     # Проверка наличия файла с табелем во временной директории
     data = await state.get_data()
     if keys_exists(['file_path'], data):
@@ -221,12 +208,12 @@ async def process_group(message: types.Message, state: FSMContext):
     """
     Обработка группы
     """
-    user = await get_user(state, message.from_user.id)
+    user = await local.get_user(state, message.from_user.id)
     if user:
         # Сохранение группы
         group = message.text
         user['group'] = group
-        await update_user(state, user)
+        await local.update_user(state, user)
         # Получение табеля посещаемости из Паруса
         await receive_timesheet(message, state)
     else:
@@ -240,10 +227,10 @@ async def cmd_group(message: types.Message, state: FSMContext):
     Выбор другой группы
     """
     # Удаление группы
-    user = await get_user(state, message.from_user.id)
+    user = await local.get_user(state, message.from_user.id)
     if keys_exists(['group'], user):
         del user['group']
-        await update_user(state, user)
+        await local.update_user(state, user)
     # Обработка другой группы
     await prompt_to_input_group(message, state)
     await Form.group.set()
@@ -255,7 +242,7 @@ async def cmd_org(message: types.Message, state: FSMContext):
     Авторизация другого учреждения
     """
     # Удаление пользователя
-    await delete_user(state, message.from_user.id)
+    await local.delete_user(state, message.from_user.id)
     # Обработка другого ИНН
     await cmd_start(message, state)
 
@@ -265,7 +252,7 @@ async def cmd_reset(message: types.Message, state: FSMContext):
     """
     Удаление авторизации
     """
-    await delete_user(state, message.from_user.id)
+    await local.delete_user(state, message.from_user.id)
     await message.reply('Авторизация в Парусе отменена', reply_markup=types.ReplyKeyboardRemove())
 
 
@@ -299,7 +286,7 @@ async def cmd_help(message: types.Message):
             *commands,
             md.text('\nДля отправки табеля в Парус отправьте его боту из мобильного приложения\n'),
             md.text(md.bold('Разработчик')),
-            md.text(f'{cfg.DEVELOPER_NAME} {cfg.DEVELOPER_TELEGRAM}'),
+            md.text(f"{config['developer']['name']} {config['developer']['telegram']}"),
             sep='\n',
         ),
         reply_markup=types.ReplyKeyboardRemove(),
@@ -325,8 +312,8 @@ async def process_timesheet(message: types.Message, state: FSMContext):
                 await echo_error(message, f'Ошибка загрузки файла с табелем посещаемости: {error}')
             # Проверка авторизации учреждения и пользователя
             org_inn_from_file = get_org_inn_from_file(file_path)
-            org = await get_org(state, message.from_user.id)
-            user = await get_user(state, message.from_user.id)
+            org = await local.get_org(state, message.from_user.id)
+            user = await local.get_user(state, message.from_user.id)
             if keys_exists(['org_inn'], org) and org_inn_from_file == org['org_inn'] \
                     and keys_exists(['person_rn'], user):
                 # Отправка табеля посещаемости в Парус
@@ -336,7 +323,7 @@ async def process_timesheet(message: types.Message, state: FSMContext):
             await state.update_data({'file_path': file_path})
             # Удаление авторизации в другом учреждении
             if keys_exists(['org_inn'], org):
-                await delete_user(state, message.from_user.id)
+                await local.delete_user(state, message.from_user.id)
             # Авторизация в учреждении с ИНН в табеле
             message.text = org_inn_from_file
             await process_inn(message, state)
@@ -373,11 +360,11 @@ async def prompt_to_input_group(message: types.Message, state: FSMContext):
     """
     Приглашение к выбору групп учреждения
     """
-    user = await get_user(state, message.from_user.id)
+    user = await local.get_user(state, message.from_user.id)
     # Получение списка групп учреждения
     if keys_exists(['db_key', 'org_rn'], user):
         try:
-            groups = parus.get_groups(user['db_key'], user['org_rn'])
+            groups = await parus.get_groups(user['db_key'], user['org_rn'])
             # Действующие группы в учреждении не найдены
             if not groups:
                 raise AttributeError('Действующие группы в учреждении не найдены')
@@ -391,104 +378,3 @@ async def prompt_to_input_group(message: types.Message, state: FSMContext):
     else:
         # Авторизация
         await cmd_start(message, state)
-
-
-async def get_user(state: FSMContext, user_id: int):
-    data = await state.get_data()
-    if 'user' in data:
-        return data['user']
-    else:
-        user = users.find_one({'user_id': user_id})
-        return dict(user) if user else None
-
-
-async def create_user(state: FSMContext, message: types.Message, org):
-    user = {
-        'db_key': org['db_key'],
-        'user_id': message.from_user.id,
-        'username': message.from_user.username,
-        'full_name': message.from_user.full_name,
-        'receive_count': 0,
-        'send_count': 0,
-        'org_rn': org['org_rn'],
-    }
-    await state.update_data({'user': user})
-    users.insert_one(user)
-
-
-async def update_user(state: FSMContext, user):
-    await state.update_data({'user': user})
-    users.update_one(
-        {'user_id': user['user_id']},
-        {'$set': user}
-    )
-
-
-async def inc_send_count(state: FSMContext, user_id: int):
-    user = await get_user(state, user_id)
-    if user:
-        user['last_date'] = datetime.now()
-        user['send_count'] += 1
-        await update_user(state, user)
-
-
-async def inc_receive_count(state: FSMContext, user_id: int):
-    user = await get_user(state, user_id)
-    if user:
-        user['last_date'] = datetime.now()
-        user['receive_count'] += 1
-        await update_user(state, user)
-
-
-async def delete_user(state: FSMContext, user_id: int):
-    data = await state.get_data()
-    if keys_exists(['user'], data):
-        del data['user']
-        await state.set_data(data)
-    users.delete_one({'user_id': user_id})
-
-
-async def get_org(state: FSMContext, user_id: int):
-    data = await state.get_data()
-    if keys_exists(['org'], data):
-        return data['org']
-    else:
-        user = await get_user(state, user_id)
-        if keys_exists(['org_rn'], user):
-            return orgs.find_one({'org_rn': user['org_rn']})
-        else:
-            return None
-
-
-async def insert_org(state: FSMContext, org):
-    await state.update_data({'org': org})
-    orgs.insert_one(org)
-
-
-async def on_startup(dispatcher: Dispatcher):
-    logging.info(f'Starting webhook connection {dispatcher.data}')
-    from aiogram.types.input_file import InputFile
-    from pathlib import Path
-    from secret_config import CERTIFICATE_PATH
-    await bot.set_webhook(
-       cfg.WEBHOOK_URL,
-       certificate=InputFile(Path(CERTIFICATE_PATH)),
-       drop_pending_updates=True)
-
-
-async def on_shutdown(dispatcher: Dispatcher):
-    await bot.set_webhook('')
-    logging.info(f'Shutting down webhook connection {dispatcher.data}')
-
-
-if __name__ == '__main__':
-    from aiogram.utils.executor import start_webhook
-    start_webhook(
-        dispatcher=dp,
-        webhook_path=cfg.WEBHOOK_PATH,
-        skip_updates=True,
-        host=cfg.WEBAPP_HOST,
-        port=cfg.WEBAPP_PORT,
-        on_startup=on_startup,
-        on_shutdown=on_shutdown,
-    )

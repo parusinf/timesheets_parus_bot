@@ -1,5 +1,5 @@
 import unittest
-from cp1251 import encode_cp1251
+from tools.cp1251 import encode_cp1251
 
 
 class TestSum(unittest.TestCase):

@@ -1,5 +1,4 @@
-secret_config.py
 .idea/
 __pycache__
-certs/
-
+config/token.yaml
+config/databases.yaml
