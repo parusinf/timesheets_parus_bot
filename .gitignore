@@ -1,4 +1,4 @@
 .idea/
 __pycache__
 config/token.yaml
-config/databases.yaml
+config/database.yaml
