@@ -4,7 +4,7 @@ After=network-online.target
 Requires=network-online.target
 
 [Service]
-ExecStart=/srv/timesheets_parus_bot/venv/bin/python /srv/timesheets_parus_bot/main.py
+ExecStart=/srv/tsheebot/venv/bin/python /srv/tsheebot/main.py
 
 [Install]
 WantedBy=multi-user.target
