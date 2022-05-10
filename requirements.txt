@@ -1,4 +1,5 @@
-aiogram==2.20
+aiogram~=2.20
+cx_Oracle~=8.3.0
 cx_Oracle_async~=0.3.3
 motor~=3.0.0
 PyYAML~=6.0
