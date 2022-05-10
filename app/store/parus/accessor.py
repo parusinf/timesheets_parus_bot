@@ -26,6 +26,6 @@ class OracleAccessor:
                 logging.error(error)
                 continue
 
-    async def on_disconnect(self, _) -> None:
+    async def on_disconnect(self) -> None:
         for pool in self.pool.values():
             await pool.close()
