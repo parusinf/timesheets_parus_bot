@@ -1,5 +1,6 @@
 import logging
 import os
+from io import BytesIO
 import aiogram.utils.markdown as md
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -7,12 +8,13 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Text
 from aiogram.types.message import ContentType
 from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.types import ParseMode
-import app.store.parus.models as parus
-import app.store.local.models as local
-from tools.helpers import split_fio, temp_file_path, echo_error, keys_exists
+from aiogram.types import ParseMode, InputFile
+import app.store.websrv.models as websrv
+import app.store.cache.models as cache
+import app.tsheebot.models as tsheebot
+from tools.helpers import split_fio, echo_error, keys_exists
 from tools.cp1251 import decode_cp1251
-from app.settings import config_token, config
+from app.settings import config
 
 
 # Команды бота
@@ -28,41 +30,39 @@ help - что может делать этот бот?'''
 logging.basicConfig(level=logging.INFO)
 
 # Aiogram Telegram Bot
-bot = Bot(token=config_token['token'])
+bot = Bot(token=config['bot_token'])
 dp = Dispatcher(bot, storage=MemoryStorage())
 
 
 # Состояния конечного автомата
 class Form(StatesGroup):
     inn = State()    # ввод ИНН учреждения
+    org = State()    # выбор учреждения
     fio = State()    # ввод ФИО сотрудника
-    group = State()  # ввод группы учреждения
+    group = State()  # выбор группы учреждения
 
 
 async def receive_timesheet(message: types.Message, state: FSMContext):
     """
     Получение табеля посещаемости из Паруса
     """
-    user = await local.get_user(state, message.from_user.id)
-    if keys_exists(['db_key', 'org_rn', 'group'], user):
+    org = await cache.get_user_org(message.from_user.id)
+    user = await cache.get_user(message.from_user.id)
+    if org and user['org_id'] and user['group']:
         try:
             # Получение табеля посещаемости из Паруса в файл CSV во временную директорию
-            file_path = await parus.receive_timesheet(user['db_key'], user['org_rn'], user['group'])
+            content, filename, status, reason = \
+                await websrv.receive_timesheet(org['db_key'], org['org_rn'], user['group'])
             # Отправка табеля посещаемости пользователю
-            if os.path.exists(file_path):
-                with open(file_path, 'rb') as file:
-                    org = await local.get_org(state, message.from_user.id)
-                    org_info = f'Учреждение: {org["org_name"]}\n' if keys_exists(['org_name'], org) else None
-                    await message.reply_document(
-                        file,
-                        caption=f'{org_info}Группа: {user["group"]}',
-                        reply_markup=types.ReplyKeyboardRemove())
-                # Удаление файла из временной директории
-                os.remove(file_path)
-                # Увеличение счётчика получения
-                await local.inc_receive_count(state, message.from_user.id)
+            if status == 200:
+                await message.reply_document(
+                    InputFile(BytesIO(content), filename),
+                    caption=f'Учреждение: {org["org_name"]}\nГруппа: {user["group"]}',
+                    reply_markup=types.ReplyKeyboardRemove())
+            else:
+                raise Exception(f'{status} {reason}')
         except Exception as error:
-            await echo_error(message, f'Ошибка получения табеля посещаемости из Паруса:\n{error}')
+            await echo_error(message, f'Ошибка получения табеля посещаемости из Паруса: {error}')
     else:
         # Авторизация и повторное получение табеля
         await cmd_start(message, state)
@@ -70,137 +70,143 @@ async def receive_timesheet(message: types.Message, state: FSMContext):
     await state.finish()
 
 
-async def send_timesheet(message: types.Message, state: FSMContext, file_path):
-    """
-    Отправка табеля посещаемости в Парус
-    """
-    try:
-        org = await local.get_org(state, message.from_user.id)
-        if keys_exists(['db_key', 'company_rn', 'org_inn'], org):
-            # Отправка табеля
-            send_result = await parus.send_timesheet(org['db_key'], org['company_rn'], file_path)
-            os.remove(file_path)
-            await message.reply(send_result, reply_markup=types.ReplyKeyboardRemove())
-            await state.finish()
-            # Увеличение счётчика отправки
-            await local.inc_send_count(state, message.from_user.id)
-            return True
-    except Exception as error:
-        await echo_error(message, f'Ошибка отправки табеля посещаемости в Парус: {error}')
-    return False
+async def send_timesheet(message: types.Message, state: FSMContext, content, filename):
+    """Отправка табеля посещаемости в Парус"""
+    org = await cache.get_user_org(message.from_user.id)
+    if org:
+        # Отправка табеля
+        result = await websrv.send_timesheet(org['db_key'], org['company_rn'], content, filename)
+        await message.reply(result, reply_markup=types.ReplyKeyboardRemove())
+        await state.finish()
+        return True
+    else:
+        return False
 
 
 @dp.message_handler(commands='start')
 async def cmd_start(message: types.Message, state: FSMContext):
-    """
-    Авторизация и отправка или получение табеля посещаемости из Паруса
-    """
-    user = await local.get_user(state, message.from_user.id)
-    if keys_exists(['org_rn', 'person_rn', 'group'], user):
-        # Получение табеля посещаемости из Паруса
-        await receive_timesheet(message, state)
-    elif not keys_exists(['org_rn'], user):
-        # Обработка ИНН, если пользователь не найден
+    """Авторизация и отправка или получение табеля посещаемости из Паруса"""
+    user = await cache.get_user(message.from_user.id)
+    if not user:
+        # Обработка ИНН, если пользователь не авторизован
         await prompt_to_input_inn(message)
         await Form.inn.set()
-    elif not keys_exists(['person_rn'], user):
+    elif not user['org_id']:
+        # Обработка учреждения, если оно не выбрано
+        orgs = await tsheebot.get_orgs(user['org_inn'])
+        await prompt_to_input_org(message, orgs)
+        await Form.org.set()
+    elif not user['person_rn']:
         # Обработка ФИО, если его нет
         await prompt_to_input_fio(message)
         await Form.fio.set()
-    elif not keys_exists(['group'], user):
+    elif not user['group']:
         # Обработка группы, если её нет
         await prompt_to_input_group(message, state)
         await Form.group.set()
+    elif user['org_id'] and user['person_rn'] and user['group']:
+        # Получение табеля посещаемости из Паруса
+        await receive_timesheet(message, state)
 
 
 @dp.message_handler(state='*', commands='cancel')
 @dp.message_handler(Text(equals='cancel', ignore_case=True), state='*')
 async def cancel_handler(message: types.Message, state: FSMContext):
-    """
-    Отмена текущей команды
-    """
+    """Отмена текущей команды"""
     await message.reply('Команда отменена', reply_markup=types.ReplyKeyboardRemove())
     await state.finish()
 
 
 @dp.message_handler(lambda message: not (message.text.isdigit() and len(message.text) == 10), state=Form.inn)
 async def process_inn_invalid(message: types.Message):
-    """
-    Проверка ИНН
-    """
+    """Проверка ИНН"""
     return await message.reply("ИНН должен содержать 10 цифр")
 
 
-@dp.message_handler(state=Form.inn)
-async def process_inn(message: types.Message, state: FSMContext):
-    """
-    Обработка ИНН
-    """
-    org_inn = message.text
-    # Поиск учреждения в MongoDB по ИНН
-    org = await local.get_org_by_inn(org_inn)
-    if not keys_exists(['org_name', 'company_name'], org):
-        # Поиск базы данных Паруса и учреждения в ней по ИНН
-        org = await parus.get_org_by_inn(org_inn)
-        if org:
-            # Учреждение найдено
-            await local.insert_org(state, org)
-        else:
-            # Учреждение не найдено
-            await message.reply(f'Учреждение с ИНН {org_inn} не подключено к сервису.\n'
-                                f"Обратитесь к разработчику {config['developer']['telegram']}")
-            await state.finish()
-            return
-    # Вывод информации об учреждении
-    await message.reply(f'Учреждение: {org["org_name"]}\nОрганизация: {org["company_name"]}')
-    # Создание пользователя с привязкой к учреждению
-    await local.create_user(state, message, org)
-    # Обработка ФИО
+async def _update_user_org(message: types.Message, user, org):
+    user.update({'org_id': org['id']})
+    await cache.update_user(user)
+    await message.reply(f'Учреждение: {org["org_name"]}')
     await prompt_to_input_fio(message)
     await Form.fio.set()
 
 
+@dp.message_handler(state=Form.inn)
+async def process_inn(message: types.Message, state: FSMContext):
+    """Обработка ИНН"""
+    org_inn = message.text
+    # Создание пользователя с ИНН
+    user = {'user_id': message.from_user.id, 'org_inn': org_inn}
+    await cache.insert_user(user)
+    orgs = await tsheebot.get_orgs(org_inn)
+    # Учреждение не найдено
+    if len(orgs) == 0:
+        await message.reply(f'Учреждение с ИНН {org_inn} не подключено к сервису.\n'
+                            f'Обратитесь к разработчику {config["developer"]["telegram"]}')
+        await state.finish()
+    # Найдено одно учреждение
+    elif len(orgs) == 1:
+        await _update_user_org(message, user, orgs[0])
+    # Найдено более одного учреждения
+    elif len(orgs) > 1:
+        await prompt_to_input_org(message, orgs)
+        await Form.org.set()
+
+
+@dp.message_handler(state=Form.org)
+async def process_org(message: types.Message, state: FSMContext):
+    """Обработка учреждения"""
+    org_code = message.text
+    user = await cache.get_user(message.from_user.id)
+    if not user['org_inn']:
+        await prompt_to_input_inn(message)
+        await Form.inn.set()
+        return
+    # Поиск учреждения по мнемокоду и ИНН
+    org = await tsheebot.get_org(org_code, user['org_inn'])
+    # Учреждение не найдено
+    if not org:
+        await message.reply(f'Учреждение с мнемокодом "{org_code}" и ИНН {user["org_inn"]} не подключено к сервису.\n'
+                            f'Обратитесь к разработчику {config["developer"]["telegram"]}')
+        await state.finish()
+    # Учреждение найдено
+    else:
+        await _update_user_org(message, user, org)
+
+
 @dp.message_handler(state=Form.fio)
 async def process_fio(message: types.Message, state: FSMContext):
-    """
-    Обработка ФИО
-    """
+    """Обработка ФИО"""
     fio = message.text
     family, firstname, lastname = split_fio(fio)
-    user = await local.get_user(state, message.from_user.id)
-    if not keys_exists(['db_key', 'org_rn'], user):
-        # Авторизация
-        await cmd_start(message, state)
-        return
-    # Поиск сотрудника учреждения по ФИО в Парусе
-    try:
-        person_rn = await parus.find_person_in_org(user['db_key'], user['org_rn'], family, firstname, lastname)
-        # Сотрудник учреждения не найден
-        if not person_rn:
-            # Сотрудник не найден в Парусе
-            await message.reply(f'Сотрудник {fio} в учреждении не найден.\n'
-                                f"Обратитесь к разработчику {config['developer']['telegram']}")
-            await state.finish()
-            return
-    except Exception as error:
-        await echo_error(message, f'Ошибка поиска сотрудника в Парусе: {error}')
-        await state.finish()
-        return
-    # Сохранение реквизитов сотрудника учреждения
-    user.update({'person_rn': person_rn, 'family': family, 'firstname': firstname, 'lastname': lastname})
-    await local.update_user(state, user)
-    # Проверка наличия файла с табелем во временной директории
-    data = await state.get_data()
-    if keys_exists(['file_path'], data):
-        file_path = data['file_path']
-        if os.path.exists(file_path):
-            await send_timesheet(message, state, file_path)
-            del data['file_path']
-            await state.set_data(data)
-    else:
+    user = await cache.get_user(message.from_user.id)
+    org = await cache.get_user_org(message.from_user.id)
+    # Поиск сотрудника учреждения по ФИО в веб-сервисе
+    person_rn = await websrv.get_person(org['db_key'], org['org_rn'], family, firstname, lastname)
+    # Сотрудник учреждения найден
+    if person_rn:
+        # Сохранение реквизитов сотрудника
+        user.update({'person_rn': person_rn, 'family': family, 'firstname': firstname, 'lastname': lastname})
+        await cache.update_user(user)
+        # Отправка табеля, присланного до этого без авторизации
+        data = await state.get_data()
+        if keys_exists(['content', 'filename'], data):
+            content = data['content']
+            filename = data['filename']
+            if os.path.exists(filename):
+                await send_timesheet(message, state, content, filename)
+                del data['content']
+                del data['filename']
+                await state.set_data(data)
         # Обработка группы
-        await prompt_to_input_group(message, state)
-        await Form.group.set()
+        else:
+            await prompt_to_input_group(message, state)
+            await Form.group.set()
+    # Сотрудник не найден в Парусе
+    else:
+        await message.reply(f'Сотрудник {fio} в учреждении не найден.\n'
+                            f'Обратитесь к разработчику {config["developer"]["telegram"]}')
+        await state.finish()
 
 
 @dp.message_handler(state=Form.group)
@@ -208,12 +214,12 @@ async def process_group(message: types.Message, state: FSMContext):
     """
     Обработка группы
     """
-    user = await local.get_user(state, message.from_user.id)
+    user = await cache.get_user(message.from_user.id)
     if user:
         # Сохранение группы
         group = message.text
         user['group'] = group
-        await local.update_user(state, user)
+        await cache.update_user(user)
         # Получение табеля посещаемости из Паруса
         await receive_timesheet(message, state)
     else:
@@ -223,14 +229,12 @@ async def process_group(message: types.Message, state: FSMContext):
 
 @dp.message_handler(commands='group')
 async def cmd_group(message: types.Message, state: FSMContext):
-    """
-    Выбор другой группы
-    """
+    """Выбор другой группы"""
     # Удаление группы
-    user = await local.get_user(state, message.from_user.id)
-    if keys_exists(['group'], user):
+    user = await cache.get_user(message.from_user.id)
+    if user['group']:
         del user['group']
-        await local.update_user(state, user)
+        await cache.update_user(user)
     # Обработка другой группы
     await prompt_to_input_group(message, state)
     await Form.group.set()
@@ -238,37 +242,27 @@ async def cmd_group(message: types.Message, state: FSMContext):
 
 @dp.message_handler(commands='org')
 async def cmd_org(message: types.Message, state: FSMContext):
-    """
-    Авторизация другого учреждения
-    """
-    # Удаление пользователя
-    await local.delete_user(state, message.from_user.id)
-    # Обработка другого ИНН
+    """Авторизация другого учреждения"""
+    await cache.delete_user(message.from_user.id)
     await cmd_start(message, state)
 
 
 @dp.message_handler(commands='reset')
-async def cmd_reset(message: types.Message, state: FSMContext):
-    """
-    Удаление авторизации
-    """
-    await local.delete_user(state, message.from_user.id)
+async def cmd_reset(message: types.Message):
+    """Удаление авторизации"""
+    await cache.delete_user(message.from_user.id)
     await message.reply('Авторизация в Парусе отменена', reply_markup=types.ReplyKeyboardRemove())
 
 
 @dp.message_handler(commands='ping')
 async def cmd_ping(message: types.Message):
-    """
-    Проверка отклика бота
-    """
+    """Проверка отклика бота"""
     await message.reply('pong')
 
 
 @dp.message_handler(commands='help')
 async def cmd_help(message: types.Message):
-    """
-    Что может делать этот бот?
-    """
+    """Что может делать этот бот?"""
     def format_command(command_line):
         command, desc = [x.strip() for x in command_line.split('-')]
         return md.text(md.link(f'/{command}', f'/{command}'), f' - {desc}')
@@ -286,7 +280,7 @@ async def cmd_help(message: types.Message):
             *commands,
             md.text('\nДля отправки табеля в Парус отправьте его боту из мобильного приложения\n'),
             md.text(md.bold('Разработчик')),
-            md.text(f"{config['developer']['name']} {config['developer']['telegram']}"),
+            md.text(f'{config["developer"]["name"]} {config["developer"]["telegram"]}'),
             sep='\n',
         ),
         reply_markup=types.ReplyKeyboardRemove(),
@@ -296,81 +290,67 @@ async def cmd_help(message: types.Message):
 
 @dp.message_handler(content_types=ContentType.DOCUMENT)
 async def process_timesheet(message: types.Message, state: FSMContext):
-    """
-    Отправка табеля посещаемости в Парус
-    """
+    """Отправка табеля посещаемости в Парус"""
     # От пользователя получен файл с табелем посещаемости
     if message.document:
-        file_name = message.document['file_name']
-        file_path = temp_file_path(file_name)
-        file_ext = os.path.splitext(file_name)[1]
+        filename = message.document['file_name']
+        file_ext = os.path.splitext(filename)[1]
         if '.csv' == file_ext:
-            try:
-                # Загрузка файла от пользователя во временную директорию
-                await message.document.download(destination_file=file_path)
-            except Exception as error:
-                await echo_error(message, f'Ошибка загрузки файла с табелем посещаемости: {error}')
+            # Загрузка файла от пользователя в байтовый буфер
+            buffer = BytesIO()
+            await message.document.download(destination_file=buffer)
+            content = buffer.read()
             # Проверка авторизации учреждения и пользователя
-            org_inn_from_file = get_org_inn_from_file(file_path)
-            org = await local.get_org(state, message.from_user.id)
-            user = await local.get_user(state, message.from_user.id)
-            if keys_exists(['org_inn'], org) and org_inn_from_file == org['org_inn'] \
-                    and keys_exists(['person_rn'], user):
+            org_code, org_inn = _extract_org_code_inn(content)
+            org = await cache.get_user_org(message.from_user.id)
+            user = await cache.get_user(message.from_user.id)
+            if org and org_code == org['org_code'] and org_inn == org['org_inn'] and user['person_rn']:
                 # Отправка табеля посещаемости в Парус
-                if await send_timesheet(message, state, file_path):
+                if await send_timesheet(message, state, content, filename):
                     return
-            # Сохранение пути файла для загрузки после авторизации
-            await state.update_data({'file_path': file_path})
+            # Сохранение табеля для загрузки после авторизации
+            await state.update_data({'content': content, 'filename': filename})
             # Удаление авторизации в другом учреждении
-            if keys_exists(['org_inn'], org):
-                await local.delete_user(state, message.from_user.id)
+            if org:
+                await cache.delete_user(message.from_user.id)
             # Авторизация в учреждении с ИНН в табеле
-            message.text = org_inn_from_file
+            message.text = org_inn
             await process_inn(message, state)
         else:
             await echo_error(message, 'Файл не содержит табель посещаемости')
 
 
-def get_org_inn_from_file(file_path):
-    """
-    Получение ИНН учреждения из файла табеля
-    """
-    with open(file_path, 'rb') as file:
-        file_content = decode_cp1251(file.read())
-    file_lines = file_content.splitlines()
-    org_fields = file_lines[1].split(';') if len(file_lines) >= 2 else None
-    return org_fields[1] if len(org_fields) >= 2 else None
+def _extract_org_code_inn(content):
+    """Извлечение мнемокода и ИНН учреждения из табеля"""
+    decoded = decode_cp1251(content)
+    lines = decoded.splitlines()
+    org_fields = lines[1].split(';') if len(lines) >= 2 else None
+    return org_fields[:2] if len(org_fields) >= 2 else None
 
 
 async def prompt_to_input_inn(message: types.Message):
-    """
-    Приглашение к вводу ИНН учреждения
-    """
-    await message.reply("ИНН вашего учреждения?")
+    """Приглашение к вводу ИНН учреждения"""
+    await message.reply('ИНН вашего учреждения?')
 
 
 async def prompt_to_input_fio(message: types.Message):
-    """
-    Приглашение к вводу ФИО сотрудника учреждения
-    """
-    await message.reply('Ваши Фамилия Имя Отчество?')
+    """Приглашение к вводу ФИО сотрудника учреждения"""
+    await message.reply('Ваши Фамилия Имя Отчество?', reply_markup=types.ReplyKeyboardRemove())
 
 
 async def prompt_to_input_group(message: types.Message, state: FSMContext):
-    """
-    Приглашение к выбору групп учреждения
-    """
-    user = await local.get_user(state, message.from_user.id)
+    """Приглашение к выбору групп учреждения"""
+    org = await cache.get_user_org(message.from_user.id)
     # Получение списка групп учреждения
-    if keys_exists(['db_key', 'org_rn'], user):
+    if org:
         try:
-            groups = await parus.get_groups(user['db_key'], user['org_rn'])
+            group_codes = await websrv.get_groups(org['db_key'], org['org_rn'])
             # Действующие группы в учреждении не найдены
-            if not groups:
-                raise AttributeError('Действующие группы в учреждении не найдены')
+            if not group_codes:
+                raise Exception('Действующие группы в учреждении не найдены')
             # Приглашение к выбору группы учреждения
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
-            markup.add(*groups.split(';'))
+            markup.add(*group_codes)
             await message.reply('Выберите группу', reply_markup=markup)
         except Exception as error:
             await echo_error(message, f'Ошибка получения списка групп из Паруса: {error}')
@@ -378,3 +358,11 @@ async def prompt_to_input_group(message: types.Message, state: FSMContext):
     else:
         # Авторизация
         await cmd_start(message, state)
+
+
+async def prompt_to_input_org(message: types.Message, orgs):
+    """Приглашение к выбору учреждения"""
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, selective=True)
+    org_codes = [o['org_code'] for o in orgs]
+    markup.add(*org_codes)
+    await message.reply('Выберите учреждение', reply_markup=markup)

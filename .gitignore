@@ -2,4 +2,4 @@
 __pycache__
 venv/
 config/token.yaml
-config/database.yaml
+tsheebot.db

@@ -13,10 +13,10 @@ def split_fio(fio):
     return tuple(fio_split[i] if len(fio_split) > i else None for i in range(3))
 
 
-def temp_file_path(file_name):
+def temp_filepath(filename):
     from os.path import join
     from tempfile import gettempdir
-    return join(gettempdir(), file_name)
+    return join(gettempdir(), filename)
 
 
 async def echo_error(message, error):

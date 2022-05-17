@@ -1,39 +1,25 @@
 # config/token.yaml
-token:
-
-# config/database.yaml
-database:
-  key1:
-    host:
-    port:
-    service_name:
-    user:
-    password:
-  key2:
-    host:
-    port:
-    service_name:
-    user:
-    password:
+# bot_token:
+# websrv_token:
 
 # config/config.yaml
-webapp:
+bot:
   host: 0.0.0.0
   port: 5002
+  cert_path: cert/bot-api-parusinf-ru.crt
+  key_path: cert/bot-api-parusinf-ru.key
 
 webhook:
   url: https://api.parusinf.ru
   cert_path: cert/api-parusinf-ru.crt
 
-mongodb:
-  host: localhost
-  port: 27017
-  database: tsheesrv
+websrv:
+  url: https://api.parusinf.ru
+  cert_path: cert/api-parusinf-ru.crt
 
-oracle:
-  nls_lang: RUSSIAN_RUSSIA.CL8MSWIN1251
-  min_pool: 1  # минимальное число соединений в пуле на одну базу
-  max_pool: 4  # максимальное число соединений в пуле на одну базу
+sqlite:
+  database: /var/lib/sqlite/tsheebot.db
+  echo: False
 
 developer:
   name: Павел Никитин
