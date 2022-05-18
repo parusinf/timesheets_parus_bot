@@ -3,7 +3,6 @@ import json
 from urllib.parse import unquote_plus
 import aiohttp
 from typing import Optional
-from multidict import MultiDict
 from app.settings import config, sslcontext
 
 websrv_url = f'{config["websrv"]["url"]}/{config["websrv_token"]}'
