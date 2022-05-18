@@ -26,9 +26,6 @@ reset - отмена авторизации в Парусе
 ping - проверка отклика бота
 help - что может делать этот бот?'''
 
-# Уровень логов
-logging.basicConfig(level=logging.INFO)
-
 # Aiogram Telegram Bot
 bot = Bot(token=config['bot_token'])
 dp = Dispatcher(bot, storage=MemoryStorage())
