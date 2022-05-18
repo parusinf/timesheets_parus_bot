@@ -69,7 +69,7 @@ def run(command):
         if pid_from_file:
             stop(pid_from_file)
     else:
-        logging.warning(f'Использование: {os.path.join(config.PROGRAM, sys.argv[0])} [start|stop|restart]')
+        logging.warning(f'Использование: tsheebot/main.py [start|stop|restart]')
 
 
 if __name__ == '__main__':
