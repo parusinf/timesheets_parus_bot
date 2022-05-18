@@ -15,7 +15,7 @@ async def get_orgs(org_inn) -> list[dict]:
         async with session.get(f'{websrv_url}/get_orgs?org_inn={org_inn}', ssl=sslcontext) as resp:
             if resp.status == 200:
                 content = await resp.text()
-                return json.loads(content)
+                return json.loads(content) if content and content != 'None' else []
             else:
                 return []
 
@@ -40,7 +40,7 @@ async def get_groups(db_key, org_rn) -> list[str]:
                                f'db_key={db_key}&org_rn={org_rn}', ssl=sslcontext) as resp:
             if resp.status == 200:
                 content = await resp.text()
-                return content.split(';')
+                return content.split(';') if content and content != 'None' else []
             else:
                 return []
 
