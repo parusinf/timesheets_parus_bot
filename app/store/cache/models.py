@@ -1,6 +1,6 @@
 from typing import Optional
 
-from sqlalchemy import exc
+from sqlalchemy import exc, delete, update, insert
 from sqlalchemy.future import select
 from app.store.cache.accessor import SqliteAccessor, User, Org
 from app.store.cache.tools import row_to_dict, rows_to_list
@@ -54,22 +54,22 @@ async def get_user_org(user_id) -> Optional[dict]:
 async def insert_user(user):
     async with db.session() as session:
         async with session.begin():
-            session.add(User(**user))
+            stmt = insert(User).values(**user)
+            await session.execute(stmt)
         await session.commit()
 
 
 async def update_user(user):
     async with db.session() as session:
         async with session.begin():
-            await session.merge(User(**user))
+            stmt = update(User).values(**user).where(user['user_id'] == User.user_id)
+            await session.execute(stmt)
         await session.commit()
 
 
 async def delete_user(user_id):
     async with db.session() as session:
         async with session.begin():
-            stmt = select(User).where(user_id == User.user_id)
-            result = await session.execute(stmt)
-            (user,) = result.first()
-            await session.delete(user)
+            stmt = delete(User).where(user_id == User.user_id)
+            await session.execute(stmt)
         await session.commit()

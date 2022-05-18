@@ -24,3 +24,9 @@ sqlite:
 developer:
   name: Павел Никитин
   telegram: '@nikitinpa'
+
+use_log_file: False
+log_file: /opt/var/log/tsheebot.log
+
+use_pid_file: True
+pid_file: /tmp/tsheebot.pid

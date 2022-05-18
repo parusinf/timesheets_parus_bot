@@ -20,6 +20,6 @@ config.update(get_config(token_path))
 # Настройка самоподписанного сертификата
 sslcontext = ssl.create_default_context(
     cafile=os.path.join(BASE_DIR, config['websrv']['cert_path']))
-sslcontext.load_cert_chain(
-    os.path.join(BASE_DIR, config['bot']['cert_path']),
-    os.path.join(BASE_DIR, config['bot']['key_path']))
+# sslcontext.load_cert_chain(
+#    os.path.join(BASE_DIR, config['bot']['cert_path']),
+#    os.path.join(BASE_DIR, config['bot']['key_path']))

@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.orm import sessionmaker
 from app.settings import config
+from sqlalchemy.engine import Engine
+from sqlalchemy import event
 
 Base = declarative_base()
 
@@ -35,6 +37,13 @@ class User(Base):
     lastname = Column(String)
     group = Column(String)
     __table_args__ = (UniqueConstraint('user_id', name='_user_user_id_uc'),)
+
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 class SqliteAccessor:
