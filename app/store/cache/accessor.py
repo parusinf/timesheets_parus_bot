@@ -29,6 +29,9 @@ class User(Base):
     __tablename__ = 'user'
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, nullable=False)
+    username = Column(String)
+    user_first_name = Column(String)
+    user_last_name = Column(String)
     org_inn = Column(String)
     org_id = Column(Integer, ForeignKey(Org.id))
     person_rn = Column(Integer)

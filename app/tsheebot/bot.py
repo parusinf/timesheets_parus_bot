@@ -136,7 +136,13 @@ async def process_inn(message: types.Message, state: FSMContext):
     """Обработка ИНН"""
     org_inn = message.text
     # Создание пользователя с ИНН
-    user = {'user_id': message.from_user.id, 'org_inn': org_inn}
+    user = {
+        'user_id': message.from_user.id,
+        'username': message.from_user.username,
+        'user_first_name': message.from_user.first_name,
+        'user_last_name': message.from_user.last_name,
+        'org_inn': org_inn,
+    }
     await cache.insert_user(user)
     orgs = await tsheebot.get_orgs(org_inn)
     # Учреждение не найдено
