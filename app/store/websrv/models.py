@@ -28,7 +28,7 @@ async def get_person(db_key, org_rn, family, firstname, lastname) -> Optional[in
                                f'family={family}&firstname={firstname}&lastname={lastname}', ssl=sslcontext) as resp:
             if resp.status == 200:
                 content = await resp.text()
-                return int(content) if content else None
+                return int(content) if content and content != 'None' else None
             else:
                 return None
 
