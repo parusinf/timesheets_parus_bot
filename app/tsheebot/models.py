@@ -1,6 +1,7 @@
 from typing import Optional
 import app.store.cache.models as cache
 import app.store.websrv.models as websrv
+from tools.helpers import keys_exists
 
 
 async def get_orgs(org_inn) -> list[dict]:
@@ -20,6 +21,10 @@ async def get_orgs(org_inn) -> list[dict]:
         # Кеширование нового учреждения (существующее учреждение добавлено не будет)
         if len(orgs) == 2:
             await cache.insert_orgs(orgs)
+    for o in orgs:
+        if not keys_exists(['id'], o):
+            org = await get_org(o['org_code'], o['org_inn'])
+            o.update({'id': org['id']})
     return orgs
 
 
