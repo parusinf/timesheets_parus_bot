@@ -1,4 +1,3 @@
-import logging
 import os
 from io import BytesIO
 import aiogram.utils.markdown as md
@@ -90,9 +89,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         await Form.inn.set()
     elif not user['org_id']:
         # Обработка учреждения, если оно не выбрано
-        orgs = await tsheebot.get_orgs(user['org_inn'])
-        await prompt_to_input_org(message, orgs)
-        await Form.org.set()
+        await _process_orgs_by_inn(message, state, user)
     elif not user['person_rn']:
         # Обработка ФИО, если его нет
         await prompt_to_input_fio(message)
@@ -141,6 +138,11 @@ async def process_inn(message: types.Message, state: FSMContext):
         'org_inn': org_inn,
     }
     await cache.insert_user(user)
+    await _process_orgs_by_inn(message, state, user)
+
+
+async def _process_orgs_by_inn(message: types.Message, state: FSMContext, user):
+    org_inn = user['org_inn']
     orgs = await tsheebot.get_orgs(org_inn)
     # Учреждение не найдено
     if len(orgs) == 0:
