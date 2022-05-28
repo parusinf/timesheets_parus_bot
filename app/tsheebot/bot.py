@@ -2,6 +2,7 @@ import os
 from io import BytesIO
 import aiogram.utils.markdown as md
 from aiogram import Bot, Dispatcher, types
+from aiogram.bot.api import TelegramAPIServer
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters import Text
@@ -26,7 +27,8 @@ ping - проверка отклика бота
 help - что может делать этот бот?'''
 
 # Aiogram Telegram Bot
-bot = Bot(token=config['bot_token'])
+local_server = TelegramAPIServer.from_base(config['bot']['api_server_url'])
+bot = Bot(token=config['bot_token'], server=local_server)
 dp = Dispatcher(bot, storage=MemoryStorage())
 
 
