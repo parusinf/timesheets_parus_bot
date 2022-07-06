@@ -1,7 +1,7 @@
 [Unit]
 Description=Telegram bot @timesheets_parus_bot
-After=network-online.target
-Requires=network-online.target
+After=network-online.target tsheesrv.service
+Requires=network-online.target tsheesrv.service
 
 [Service]
 ExecStart=/srv/tsheebot/venv/bin/python /srv/tsheebot/main.py
