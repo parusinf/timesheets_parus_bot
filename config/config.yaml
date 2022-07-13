@@ -27,8 +27,8 @@ developer:
   name: Павел Никитин
   telegram: '@nikitinpa'
 
-use_log_file: True
+use_log_file: False
 log_file: /tmp/tsheebot.log
 
-use_pid_file: True
+use_pid_file: False
 pid_file: /tmp/tsheebot.pid
