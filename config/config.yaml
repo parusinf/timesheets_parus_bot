@@ -8,8 +8,7 @@ bot:
   port: 5002
   cert_path: cert/bot-api-parusinf-ru.crt
   key_path: cert/bot-api-parusinf-ru.key
-  # https://api.telegram.org by default
-  api_server_url: 'http://192.168.1.72:5000'
+  api_server_url: 'https://api.telegram.org'
 
 webhook:
   url: https://api.parusinf.ru
