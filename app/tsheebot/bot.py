@@ -13,8 +13,9 @@ import app.store.websrv.models as websrv
 import app.store.cache.models as cache
 import app.tsheebot.models as tsheebot
 from tools.helpers import split_fio, echo_error, keys_exists
-from tools.cp1251 import decode_cp1251
+from tools.cp1251 import decode_cp1251, encode_cp1251
 from app.settings import config
+from charset_normalizer import from_bytes
 
 
 # Команды бота
@@ -302,21 +303,26 @@ async def process_timesheet(message: types.Message, state: FSMContext):
     if message.document:
         filename = message.document['file_name']
         file_ext = os.path.splitext(filename)[1]
-        if '.csv' == file_ext:
+        if file_ext in ['.csv', '.txt']:
             # Загрузка файла от пользователя в байтовый буфер
             buffer = BytesIO()
             await message.document.download(destination_file=buffer)
-            content = buffer.read()
+            # Считывание табеля в кодировке cp1251 либо utf8
+            encoded = buffer.read()
+            # Преобразование в кодировку utf8 для обработки
+            content = str(from_bytes(encoded).best())
+            # Преобразование в кодировку cp1251 для отправки
+            encoded = encode_cp1251(content)
             # Проверка авторизации учреждения и пользователя
             org_code, org_inn = _extract_org_code_inn(content)
             org = await cache.get_user_org(message.from_user.id)
             user = await cache.get_user(message.from_user.id)
             if org and org_code == org['org_code'] and org_inn == org['org_inn'] and user['person_rn']:
                 # Отправка табеля посещаемости в Парус
-                if await send_timesheet(message, state, content, filename):
+                if await send_timesheet(message, state, encoded, filename):
                     return
             # Сохранение табеля для загрузки после авторизации
-            await state.update_data({'content': content, 'filename': filename})
+            await state.update_data({'content': encoded, 'filename': filename})
             # Удаление авторизации в другом учреждении
             if org:
                 await cache.delete_user(message.from_user.id)
@@ -329,8 +335,7 @@ async def process_timesheet(message: types.Message, state: FSMContext):
 
 def _extract_org_code_inn(content):
     """Извлечение мнемокода и ИНН учреждения из табеля"""
-    decoded = decode_cp1251(content)
-    lines = decoded.splitlines()
+    lines = content.splitlines()
     org_fields = lines[1].split(';') if len(lines) >= 2 else None
     return org_fields[:2] if len(org_fields) >= 2 else None
 
